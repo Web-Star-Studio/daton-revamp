@@ -2,70 +2,163 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { type PropsWithChildren, useState } from "react";
+import { useSelectedLayoutSegment } from "next/navigation";
+import {
+  type PropsWithChildren,
+  type ReactNode,
+  useEffect,
+  useState,
+} from "react";
 
 import type { ServerSession } from "@/lib/server-api";
-import { formatRole, formatShortName } from "@/lib/utils";
+import { formatShortName } from "@/lib/utils";
 
+import { AiChatModal } from "./ai-chat-modal";
+import { AlertsModal } from "./alerts-modal";
 import { AppHeader } from "./app-header";
 import { AppNavigation } from "./app-navigation";
+import { BRANCH_EDITOR_MODAL_VISIBILITY_EVENT } from "./branch-editor-modal";
+import { COLLABORATOR_MODAL_VISIBILITY_EVENT } from "./collaborators-events";
 import { SignOutButton } from "./sign-out-button";
 
 type AppShellProps = PropsWithChildren<{
+  modal?: ReactNode;
   session: ServerSession;
 }>;
 
 const navigation = [
-  { href: "/app", label: "Visão geral" },
-  { href: "/app/branches", label: "Filiais" },
-  { href: "/app/settings/organization", label: "Organização" },
+  { href: "/app", label: "Visão geral", icon: "dashboard" as const },
+  {
+    label: "Social",
+    icon: "social" as const,
+    children: [
+      { href: "/app/social/collaborators", label: "Gestão de Colaboradores" },
+    ],
+  },
+  {
+    href: "/app/settings/organization",
+    label: "Organização",
+    icon: "organization" as const,
+  },
 ];
 
-export function AppShell({ children, session }: AppShellProps) {
+export function AppShell({ children, modal, session }: AppShellProps) {
+  const activeModalSegment = useSelectedLayoutSegment("modal");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const organizationName = session.organization?.tradeName ?? session.organization?.legalName ?? "Daton";
-  const memberName = formatShortName(session.member?.fullName ?? session.user.email);
+  const [isAlertsOpen, setIsAlertsOpen] = useState(false);
+  const [isAiChatOpen, setIsAiChatOpen] = useState(false);
+  const [isBranchEditorOpen, setIsBranchEditorOpen] = useState(false);
+  const [isCollaboratorModalOpen, setIsCollaboratorModalOpen] = useState(false);
+  const memberName = formatShortName(
+    session.member?.fullName ?? session.user.email,
+  );
+  const isAnyModalOpen =
+    isAlertsOpen ||
+    isAiChatOpen ||
+    isBranchEditorOpen ||
+    isCollaboratorModalOpen ||
+    Boolean(activeModalSegment);
+
+  useEffect(() => {
+    document.body.classList.toggle("app-modal-open", isAnyModalOpen);
+
+    return () => {
+      document.body.classList.remove("app-modal-open");
+    };
+  }, [isAnyModalOpen]);
+
+  useEffect(() => {
+    const handleBranchEditorVisibility = (event: Event) => {
+      const modalEvent = event as CustomEvent<{ open?: boolean }>;
+      setIsBranchEditorOpen(Boolean(modalEvent.detail?.open));
+    };
+    const handleCollaboratorModalVisibility = (event: Event) => {
+      const modalEvent = event as CustomEvent<{ open?: boolean }>;
+      setIsCollaboratorModalOpen(Boolean(modalEvent.detail?.open));
+    };
+
+    window.addEventListener(
+      BRANCH_EDITOR_MODAL_VISIBILITY_EVENT,
+      handleBranchEditorVisibility as EventListener,
+    );
+    window.addEventListener(
+      COLLABORATOR_MODAL_VISIBILITY_EVENT,
+      handleCollaboratorModalVisibility as EventListener,
+    );
+
+    return () => {
+      window.removeEventListener(
+        BRANCH_EDITOR_MODAL_VISIBILITY_EVENT,
+        handleBranchEditorVisibility as EventListener,
+      );
+      window.removeEventListener(
+        COLLABORATOR_MODAL_VISIBILITY_EVENT,
+        handleCollaboratorModalVisibility as EventListener,
+      );
+    };
+  }, []);
 
   return (
     <div className={`app-shell${isSidebarCollapsed ? " is-collapsed" : ""}`}>
-      <aside className="app-sidebar">
-        <div className="app-sidebar__top">
-          <Link className="app-sidebar__brand" href="/app">
-            <Image
-              alt="Daton"
-              height={28}
-              src="/daton-logo-header-DC_evyPp.png"
-              style={{ objectFit: "contain", objectPosition: "left" }}
-              width={isSidebarCollapsed ? 32 : 100}
-              priority
-            />
-          </Link>
-          <AppNavigation items={navigation} />
-        </div>
-        <div className="app-sidebar__footer">
-          <div className="app-sidebar__profile">
-            <div className="app-sidebar__avatar" aria-hidden="true">
-              {memberName ? memberName.charAt(0).toUpperCase() : "?"}
+      <div
+        aria-hidden={isAnyModalOpen}
+        className="app-shell__frame"
+        inert={isAnyModalOpen}
+      >
+        <aside className="app-sidebar">
+          <div className="app-sidebar__inner">
+            <div className="app-sidebar__top">
+              <Link
+                aria-label="Ir para o workspace"
+                className="app-sidebar__brand"
+                href="/app"
+              >
+                <Image
+                  alt="Daton"
+                  className="app-sidebar__brand-logo"
+                  height={28}
+                  priority
+                  src="/daton-logo-header-DC_evyPp.png"
+                  width={84}
+                />
+              </Link>
+              <AppNavigation items={navigation} />
             </div>
-            {!isSidebarCollapsed && (
-              <div className="app-sidebar__profilecopy">
-                <strong>{memberName}</strong>
+            <div className="app-sidebar__footer">
+              <div className="app-sidebar__profile">
+                <div className="app-sidebar__avatar" aria-hidden="true">
+                  {memberName ? memberName.charAt(0).toUpperCase() : "?"}
+                </div>
+                {!isSidebarCollapsed ? (
+                  <>
+                    <div className="app-sidebar__profilecopy">
+                      <strong>{memberName}</strong>
+                    </div>
+                    <div className="app-sidebar__signout">
+                      <SignOutButton />
+                    </div>
+                  </>
+                ) : null}
               </div>
-            )}
-            {!isSidebarCollapsed && (
-              <div className="app-sidebar__signout">
-                <SignOutButton />
-              </div>
-            )}
+            </div>
           </div>
-        </div>
-      </aside>
-      <main className="app-main">
-        <div className="app-main__inner">
-          <AppHeader onSidebarToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)} />
-          {children}
-        </div>
-      </main>
+        </aside>
+        <main className="app-main">
+          <div className="app-main__inner">
+            <AppHeader
+              onAiChatOpen={() => setIsAiChatOpen(true)}
+              onAlertsOpen={() => setIsAlertsOpen(true)}
+              onSidebarToggle={() =>
+                setIsSidebarCollapsed((current) => !current)
+              }
+            />
+            {children}
+          </div>
+        </main>
+      </div>
+      <AlertsModal open={isAlertsOpen} onClose={() => setIsAlertsOpen(false)} />
+      <AiChatModal open={isAiChatOpen} onClose={() => setIsAiChatOpen(false)} />
+      {modal}
     </div>
   );
 }

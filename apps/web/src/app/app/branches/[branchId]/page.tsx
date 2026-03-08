@@ -1,19 +1,29 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { formatCnpj } from "@daton/contracts";
-import { BranchForm } from "@/components/branch-form";
-import { getServerBranch, getServerBranches } from "@/lib/server-api";
-import { formatBranchStatus } from "@/lib/utils";
+import { BranchEditorModal } from "@/components/branch-editor-modal";
+import {
+  getServerBranch,
+  getServerBranches,
+  type ServerBranch,
+} from "@/lib/server-api";
 
 type BranchDetailPageProps = {
   params: Promise<{
     branchId: string;
   }>;
+  searchParams: Promise<{
+    edit?: string;
+  }>;
 };
 
-export default async function BranchDetailPage({ params }: BranchDetailPageProps) {
-  const { branchId } = await params;
+export default async function BranchDetailPage({
+  params,
+  searchParams,
+}: BranchDetailPageProps) {
+  const [{ branchId }, resolvedSearchParams] = await Promise.all([
+    params,
+    searchParams,
+  ]);
   const [branch, branches] = await Promise.all([
     getServerBranch(branchId).catch(() => null),
     getServerBranches(),
@@ -23,52 +33,81 @@ export default async function BranchDetailPage({ params }: BranchDetailPageProps
     notFound();
   }
 
-  return (
-    <section className="workspace-section">
-      <header className="workspace-hero">
-        <div className="workspace-hero__lead">
-          <p className="eyebrow">Detalhe da filial</p>
-          <h2>{branch.name}</h2>
-          <p className="workspace-copy">Revise os dados desta unidade e atualize apenas o que precisa mudar.</p>
-        </div>
-        <aside className="workspace-hero__panel">
-          <p className="workspace-kicker">Status</p>
-          <strong>{branch.isHeadquarters ? "Matriz" : "Filial operacional"}</strong>
-          <span>{formatBranchStatus(branch.status)}</span>
-          <span>Código {branch.code}</span>
-          <Link className="button button--ghost" href="/app/branches">
-            Voltar para filiais
-          </Link>
-        </aside>
-      </header>
+  const parentBranch = branches.find(
+    (candidate: ServerBranch) => candidate.id === branch.parentBranchId,
+  );
+  const isEditOpen = resolvedSearchParams.edit === "1";
 
-      <div className="split-panel">
-        <article className="content-panel">
-          <p className="eyebrow">Registro atual</p>
-          <dl className="definition-list">
-            <div>
-              <dt>Código</dt>
-              <dd>{branch.code}</dd>
+  return (
+    <>
+      <section className="workspace-section">
+        <header className="workspace-intro">
+          <h2>{branch.name}</h2>
+          <p className="workspace-copy">
+            Gerencie o cadastro central da unidade e acompanhe os pontos
+            operacionais que já estão disponíveis neste payload.
+          </p>
+        </header>
+
+        <div className="detail-grid">
+          <article className="content-panel">
+            <div className="section-heading">
+              <h3>Localização e contato</h3>
             </div>
-            <div>
-              <dt>CNPJ</dt>
-              <dd>{formatCnpj(branch.legalIdentifier)}</dd>
+            <dl className="definition-list">
+              <div>
+                <dt>Logradouro</dt>
+                <dd>Indisponível no payload atual</dd>
+              </div>
+              <div>
+                <dt>Bairro / CEP</dt>
+                <dd>Indisponível no payload atual</dd>
+              </div>
+              <div>
+                <dt>E-mail</dt>
+                <dd>Indisponível no payload atual</dd>
+              </div>
+              <div>
+                <dt>Telefone</dt>
+                <dd>Indisponível no payload atual</dd>
+              </div>
+            </dl>
+          </article>
+
+          <article className="content-panel">
+            <div className="section-heading">
+              <h3>Responsabilidade</h3>
             </div>
-            <div>
-              <dt>Tipo</dt>
-              <dd>{branch.isHeadquarters ? "Matriz" : "Filial operacional"}</dd>
-            </div>
-            <div>
-              <dt>Status</dt>
-              <dd>{formatBranchStatus(branch.status)}</dd>
-            </div>
-          </dl>
-        </article>
-        <article className="content-panel">
-          <p className="eyebrow">Editar</p>
-          <BranchForm branch={branch} branches={branches} />
-        </article>
-      </div>
-    </section>
+            <dl className="definition-list">
+              <div>
+                <dt>Natureza da unidade</dt>
+                <dd>
+                  {branch.isHeadquarters ? "Matriz" : "Filial operacional"}
+                </dd>
+              </div>
+              <div>
+                <dt>Filial pai</dt>
+                <dd>{parentBranch?.name ?? "Sem filial pai"}</dd>
+              </div>
+              <div>
+                <dt>Responsável gestor</dt>
+                <dd>
+                  {branch.managerMemberId ? "Vinculado" : "Não vinculado"}
+                </dd>
+              </div>
+              <div>
+                <dt>Status operacional</dt>
+                <dd>{branch.status === "active" ? "Ativa" : "Arquivada"}</dd>
+              </div>
+            </dl>
+          </article>
+        </div>
+      </section>
+      <BranchEditorModal
+        branch={branch}
+        branches={branches}
+        open={isEditOpen}
+      />
+    </>
   );
 }

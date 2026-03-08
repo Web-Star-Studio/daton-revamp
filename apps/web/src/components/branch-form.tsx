@@ -10,14 +10,17 @@ import { type ServerBranch } from "@/lib/server-api";
 type BranchFormProps = {
   branches: ServerBranch[];
   branch?: ServerBranch;
+  onSuccess?: (branch: ServerBranch) => void;
 };
 
-export function BranchForm({ branches, branch }: BranchFormProps) {
+export function BranchForm({ branches, branch, onSuccess }: BranchFormProps) {
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selectableBranches = branches.filter((candidate) => candidate.id !== branch?.id);
+  const selectableBranches = branches.filter(
+    (candidate) => candidate.id !== branch?.id,
+  );
 
   return (
     <form
@@ -40,10 +43,12 @@ export function BranchForm({ branches, branch }: BranchFormProps) {
           country: String(formData.get("country") ?? ""),
           isHeadquarters: formData.get("isHeadquarters") === "on",
           parentBranchId: String(formData.get("parentBranchId") ?? "") || null,
-          managerMemberId: String(formData.get("managerMemberId") ?? "") || null,
+          managerMemberId:
+            String(formData.get("managerMemberId") ?? "") || null,
           ...(branch
             ? {
-                status: (String(formData.get("status") ?? "") || "active") as UpdateBranchInput["status"],
+                status: (String(formData.get("status") ?? "") ||
+                  "active") as UpdateBranchInput["status"],
               }
             : {}),
         } satisfies UpdateBranchInput;
@@ -57,10 +62,20 @@ export function BranchForm({ branches, branch }: BranchFormProps) {
               ? await updateBranch(branch.id, payload)
               : await createBranch(payload);
 
-            router.replace(`/app/branches/${saved.id}`);
             router.refresh();
+
+            if (onSuccess) {
+              onSuccess(saved);
+              return;
+            }
+
+            router.replace(`/app/branches/${saved.id}`);
           } catch (branchError) {
-            setError(branchError instanceof Error ? branchError.message : "Não foi possível salvar a filial.");
+            setError(
+              branchError instanceof Error
+                ? branchError.message
+                : "Não foi possível salvar a filial.",
+            );
           } finally {
             setIsPending(false);
           }
@@ -69,11 +84,23 @@ export function BranchForm({ branches, branch }: BranchFormProps) {
     >
       <div className="field">
         <label htmlFor="name">Nome da filial</label>
-        <input defaultValue={branch?.name} id="name" name="name" required type="text" />
+        <input
+          defaultValue={branch?.name}
+          id="name"
+          name="name"
+          required
+          type="text"
+        />
       </div>
       <div className="field">
         <label htmlFor="code">Código da filial</label>
-        <input defaultValue={branch?.code} id="code" name="code" required type="text" />
+        <input
+          defaultValue={branch?.code}
+          id="code"
+          name="code"
+          required
+          type="text"
+        />
       </div>
       <div className="field">
         <label htmlFor="legalIdentifier">CNPJ</label>
@@ -100,11 +127,21 @@ export function BranchForm({ branches, branch }: BranchFormProps) {
       </div>
       <div className="field field--wide">
         <label htmlFor="addressLine1">Endereço, linha 1</label>
-        <input defaultValue="" id="addressLine1" name="addressLine1" type="text" />
+        <input
+          defaultValue=""
+          id="addressLine1"
+          name="addressLine1"
+          type="text"
+        />
       </div>
       <div className="field field--wide">
         <label htmlFor="addressLine2">Endereço, linha 2</label>
-        <input defaultValue="" id="addressLine2" name="addressLine2" type="text" />
+        <input
+          defaultValue=""
+          id="addressLine2"
+          name="addressLine2"
+          type="text"
+        />
       </div>
       <div className="field">
         <label htmlFor="city">Cidade</label>
@@ -112,7 +149,12 @@ export function BranchForm({ branches, branch }: BranchFormProps) {
       </div>
       <div className="field">
         <label htmlFor="stateOrProvince">Estado ou província</label>
-        <input defaultValue="" id="stateOrProvince" name="stateOrProvince" type="text" />
+        <input
+          defaultValue=""
+          id="stateOrProvince"
+          name="stateOrProvince"
+          type="text"
+        />
       </div>
       <div className="field">
         <label htmlFor="postalCode">CEP</label>
@@ -124,7 +166,11 @@ export function BranchForm({ branches, branch }: BranchFormProps) {
       </div>
       <div className="field">
         <label htmlFor="parentBranchId">Filial pai</label>
-        <select defaultValue={branch?.parentBranchId ?? ""} id="parentBranchId" name="parentBranchId">
+        <select
+          defaultValue={branch?.parentBranchId ?? ""}
+          id="parentBranchId"
+          name="parentBranchId"
+        >
           <option value="">Sem filial pai</option>
           {selectableBranches.map((candidate) => (
             <option key={candidate.id} value={candidate.id}>
@@ -153,12 +199,21 @@ export function BranchForm({ branches, branch }: BranchFormProps) {
         </div>
       ) : null}
       <label className="checkbox">
-        <input defaultChecked={branch?.isHeadquarters ?? false} id="isHeadquarters" name="isHeadquarters" type="checkbox" />
+        <input
+          defaultChecked={branch?.isHeadquarters ?? false}
+          id="isHeadquarters"
+          name="isHeadquarters"
+          type="checkbox"
+        />
         <span>Marcar como matriz</span>
       </label>
       {error ? <p className="form-error">{error}</p> : null}
       <button className="button" disabled={isPending} type="submit">
-        {isPending ? "Salvando filial" : branch ? "Salvar alterações da filial" : "Criar filial"}
+        {isPending
+          ? "Salvando filial"
+          : branch
+            ? "Salvar alterações da filial"
+            : "Criar filial"}
       </button>
     </form>
   );

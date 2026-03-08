@@ -51,7 +51,7 @@ test("bootstrap, branch management, and auth flows work end to end", async ({ pa
     email: detachedUser.email,
   });
 
-  await page.goto("/app/branches");
+  await page.goto("/app/settings/organization");
   await page.getByRole("link", { name: new RegExp(`Filial ${suffix}`) }).click();
   await page.getByLabel("ID do membro gestor").fill(memberId);
   await page.getByRole("button", { name: "Salvar alterações da filial" }).click();

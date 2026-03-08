@@ -1,0 +1,10 @@
+.git
+.github
+node_modules
+apps/*/node_modules
+apps/*/.next
+packages/*/dist
+playwright-report
+test-results
+.wrangler
+tmp

@@ -1,0 +1,16 @@
+node_modules
+.next
+.turbo
+.wrangler
+dist
+coverage
+playwright-report
+test-results
+.env
+.env.local
+.env.test
+apps/*/.env.local
+apps/*/.dev.vars
+apps/*/.next
+packages/*/dist
+tmp

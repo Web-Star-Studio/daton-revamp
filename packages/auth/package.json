@@ -1,0 +1,20 @@
+{
+  "name": "@daton/auth",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "echo \"No tests for @daton/auth\""
+  },
+  "dependencies": {
+    "@daton/db": "workspace:*",
+    "@better-auth/drizzle-adapter": "1.5.4",
+    "better-auth": "1.5.4",
+    "zod": "^4.1.12"
+  }
+}

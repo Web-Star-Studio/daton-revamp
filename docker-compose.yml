@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: daton
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d daton"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /workspace
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    command:
+      - bash
+      - -lc
+      - |
+        DATABASE_URL=postgres://postgres:postgres@postgres:5432/daton pnpm db:migrate
+        pnpm --filter @daton/api exec wrangler dev src/index.ts --local --ip 0.0.0.0 --port 8787
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./apps:/workspace/apps
+      - ./packages:/workspace/packages
+      - ./tsconfig.base.json:/workspace/tsconfig.base.json
+      - ./pnpm-workspace.yaml:/workspace/pnpm-workspace.yaml
+      - ./apps/api/.dev.vars.docker:/workspace/apps/api/.dev.vars
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    depends_on:
+      api:
+        condition: service_started
+    working_dir: /workspace
+    environment:
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:8787
+      INTERNAL_API_URL: http://api:8787
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      WATCHPACK_POLLING: "true"
+    command:
+      - bash
+      - -lc
+      - |
+        pnpm --filter @daton/web exec next dev --hostname 0.0.0.0 --port 3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps:/workspace/apps
+      - ./packages:/workspace/packages
+      - ./tsconfig.base.json:/workspace/tsconfig.base.json
+      - ./pnpm-workspace.yaml:/workspace/pnpm-workspace.yaml
+
+volumes:
+  postgres_data:

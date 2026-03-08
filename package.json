@@ -1,0 +1,29 @@
+{
+  "name": "daton-revamp",
+  "private": true,
+  "packageManager": "pnpm@10.30.3",
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter @daton/api dev\" \"pnpm --filter @daton/web dev\"",
+    "dev:docker": "COMPOSE_MENU=false docker compose up --build",
+    "dev:docker:logs": "docker compose logs -f api web postgres",
+    "dev:docker:down": "docker compose down",
+    "dev:docker:reset": "docker compose down -v",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:e2e": "playwright test",
+    "format": "prettier --check .",
+    "db:generate": "pnpm --filter @daton/db db:generate",
+    "db:migrate": "pnpm --filter @daton/db db:migrate",
+    "db:studio": "pnpm --filter @daton/db db:studio"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2",
+    "@types/node": "^24.10.1",
+    "concurrently": "^9.2.1",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

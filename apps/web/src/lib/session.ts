@@ -1,13 +1,6 @@
-import { redirect } from "next/navigation";
-
 import { getServerSession, type ServerSession } from "./server-api";
 
-export async function requireSession() {
+export async function requireSession(): Promise<ServerSession | null> {
   const session = await getServerSession();
-
-  if (!session) {
-    redirect("/sign-in");
-  }
-
-  return session satisfies ServerSession;
+  return session satisfies ServerSession | null;
 }

@@ -4,20 +4,6 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
-  OPEN_COLLABORATOR_CREATION_EVENT,
-  OPEN_COLLABORATOR_EXPORT_EVENT,
-  OPEN_COLLABORATOR_IMPORT_EVENT,
-  OPEN_ROLE_CREATION_EVENT,
-  OPEN_ROLE_EDITION_EVENT,
-  OPEN_ROLE_EXPORT_EVENT,
-  OPEN_ROLE_IMPORT_EVENT,
-} from "./collaborators-events";
-import {
-  OPEN_DEPARTMENT_CREATION_EVENT,
-  OPEN_DEPARTMENT_EXPORT_EVENT,
-  OPEN_DEPARTMENT_IMPORT_EVENT,
-} from "./organization-departments-events";
-import {
   OPEN_UNIT_EXPORT_EVENT,
   OPEN_UNIT_IMPORT_EVENT,
 } from "./organization-units-events";
@@ -30,6 +16,7 @@ import {
 } from "./app-icons";
 
 type AppHeaderProps = {
+  notificationCount: number;
   onAlertsOpen: () => void;
   onAiChatOpen: () => void;
   onSidebarToggle?: () => void;
@@ -84,6 +71,15 @@ function getHeaderMeta(pathname: string): HeaderMeta {
     };
   }
 
+  if (pathname === "/app/onboarding/organization") {
+    return {
+      crumbs: [
+        { href: "/app/settings/organization", label: "Organização" },
+        { href: pathname, label: "Onboarding" },
+      ],
+    };
+  }
+
   if (pathname === "/app/social/collaborators") {
     return {
       crumbs: [{ href: pathname, label: "Gestão de Colaboradores" }],
@@ -108,6 +104,7 @@ function getHeaderMeta(pathname: string): HeaderMeta {
 }
 
 export function AppHeader({
+  notificationCount,
   onAlertsOpen,
   onAiChatOpen,
   onSidebarToggle,
@@ -121,17 +118,8 @@ export function AppHeader({
   const isOrganizationPage = pathname === "/app/settings/organization";
   const activeOrganizationTab =
     searchParams.get("tab") === "departments" ? "departments" : "units";
-  const activeCollaboratorTab =
-    searchParams.get("tab") === "roles" ? "roles" : "overview";
-  const selectedRoleId = searchParams.get("role");
 
   const openBranchEditor = () => {
-    const nextSearchParams = new URLSearchParams(searchParams.toString());
-    nextSearchParams.set("edit", "1");
-    router.replace(`${pathname}?${nextSearchParams.toString()}`);
-  };
-
-  const openCollaboratorEditor = () => {
     const nextSearchParams = new URLSearchParams(searchParams.toString());
     nextSearchParams.set("edit", "1");
     router.replace(`${pathname}?${nextSearchParams.toString()}`);
@@ -200,119 +188,6 @@ export function AppHeader({
             </Link>
           </>
         ) : null}
-        {isOrganizationPage && activeOrganizationTab === "departments" ? (
-          <>
-            <button
-              className="button button--secondary"
-              onClick={() =>
-                window.dispatchEvent(new Event(OPEN_DEPARTMENT_IMPORT_EVENT))
-              }
-              type="button"
-            >
-              Importar
-            </button>
-            <button
-              className="button button--secondary"
-              onClick={() =>
-                window.dispatchEvent(new Event(OPEN_DEPARTMENT_EXPORT_EVENT))
-              }
-              type="button"
-            >
-              Exportar
-            </button>
-            <button
-              className="button"
-              onClick={() =>
-                window.dispatchEvent(new Event(OPEN_DEPARTMENT_CREATION_EVENT))
-              }
-              type="button"
-            >
-              Criar departamento
-            </button>
-          </>
-        ) : null}
-        {pathname === "/app/social/collaborators" &&
-        activeCollaboratorTab === "overview" ? (
-          <>
-            <button
-              className="button button--secondary"
-              onClick={() =>
-                window.dispatchEvent(new Event(OPEN_COLLABORATOR_IMPORT_EVENT))
-              }
-              type="button"
-            >
-              Importar
-            </button>
-            <button
-              className="button button--secondary"
-              onClick={() =>
-                window.dispatchEvent(new Event(OPEN_COLLABORATOR_EXPORT_EVENT))
-              }
-              type="button"
-            >
-              Exportar
-            </button>
-            <button
-              className="button"
-              onClick={() =>
-                window.dispatchEvent(
-                  new Event(OPEN_COLLABORATOR_CREATION_EVENT),
-                )
-              }
-              type="button"
-            >
-              Adicionar colaborador
-            </button>
-          </>
-        ) : null}
-        {pathname === "/app/social/collaborators" &&
-        activeCollaboratorTab === "roles" ? (
-          <>
-            <button
-              className="button button--secondary"
-              onClick={() =>
-                window.dispatchEvent(new Event(OPEN_ROLE_IMPORT_EVENT))
-              }
-              type="button"
-            >
-              Importar
-            </button>
-            <button
-              className="button button--secondary"
-              onClick={() =>
-                window.dispatchEvent(new Event(OPEN_ROLE_EXPORT_EVENT))
-              }
-              type="button"
-            >
-              Exportar
-            </button>
-            {selectedRoleId ? (
-              <button
-                className="button button--secondary"
-                onClick={() =>
-                  window.dispatchEvent(
-                    new CustomEvent(OPEN_ROLE_EDITION_EVENT, {
-                      detail: { roleId: selectedRoleId },
-                    }),
-                  )
-                }
-                type="button"
-              >
-                <EditIcon />
-                <span>Editar cargo</span>
-              </button>
-            ) : null}
-            <button
-              className="button"
-              onClick={() =>
-                window.dispatchEvent(new Event(OPEN_ROLE_CREATION_EVENT))
-              }
-              type="button"
-            >
-              Adicionar cargo
-            </button>
-          </>
-        ) : null}
         {isCollaboratorDetail ? (
           <>
             <Link
@@ -321,14 +196,6 @@ export function AppHeader({
             >
               Voltar à lista
             </Link>
-            <button
-              className="button button--secondary"
-              onClick={openCollaboratorEditor}
-              type="button"
-            >
-              <EditIcon />
-              <span>Editar colaborador</span>
-            </button>
             <button
               className="button"
               onClick={() => window.print()}
@@ -370,7 +237,11 @@ export function AppHeader({
           type="button"
         >
           <BellIcon />
-          <span className="icon-button__badge">3</span>
+          {notificationCount > 0 ? (
+            <span className="icon-button__badge">
+              {notificationCount > 99 ? "99+" : notificationCount}
+            </span>
+          ) : null}
         </button>
       </div>
     </header>

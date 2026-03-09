@@ -128,16 +128,16 @@ export function BranchForm({
       </div>
       <div className="field">
         <label htmlFor="email">E-mail de contato</label>
-        <input defaultValue="" id="email" name="email" type="email" />
+        <input defaultValue={branch?.email ?? ""} id="email" name="email" type="email" />
       </div>
       <div className="field">
         <label htmlFor="phone">Telefone</label>
-        <input defaultValue="" id="phone" name="phone" type="text" />
+        <input defaultValue={branch?.phone ?? ""} id="phone" name="phone" type="text" />
       </div>
       <div className="field field--wide">
         <label htmlFor="addressLine1">Endereço, linha 1</label>
         <input
-          defaultValue=""
+          defaultValue={branch?.addressLine1 ?? ""}
           id="addressLine1"
           name="addressLine1"
           type="text"
@@ -146,7 +146,7 @@ export function BranchForm({
       <div className="field field--wide">
         <label htmlFor="addressLine2">Endereço, linha 2</label>
         <input
-          defaultValue=""
+          defaultValue={branch?.addressLine2 ?? ""}
           id="addressLine2"
           name="addressLine2"
           type="text"
@@ -154,12 +154,12 @@ export function BranchForm({
       </div>
       <div className="field">
         <label htmlFor="city">Cidade</label>
-        <input defaultValue="" id="city" name="city" type="text" />
+        <input defaultValue={branch?.city ?? ""} id="city" name="city" type="text" />
       </div>
       <div className="field">
         <label htmlFor="stateOrProvince">Estado ou província</label>
         <input
-          defaultValue=""
+          defaultValue={branch?.stateOrProvince ?? ""}
           id="stateOrProvince"
           name="stateOrProvince"
           type="text"
@@ -167,11 +167,16 @@ export function BranchForm({
       </div>
       <div className="field">
         <label htmlFor="postalCode">CEP</label>
-        <input defaultValue="" id="postalCode" name="postalCode" type="text" />
+        <input
+          defaultValue={branch?.postalCode ?? ""}
+          id="postalCode"
+          name="postalCode"
+          type="text"
+        />
       </div>
       <div className="field">
         <label htmlFor="country">País</label>
-        <input defaultValue="" id="country" name="country" type="text" />
+        <input defaultValue={branch?.country ?? ""} id="country" name="country" type="text" />
       </div>
       <div className="field">
         <label htmlFor="parentBranchId">Filial pai</label>

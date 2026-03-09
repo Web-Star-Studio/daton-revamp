@@ -11,7 +11,14 @@ export const roles = [
 ] as const;
 
 export const branchStatuses = ["active", "archived"] as const;
+export const departmentStatuses = ["active", "archived"] as const;
 export const organizationMemberStatuses = ["active", "inactive"] as const;
+export const organizationOnboardingStatuses = [
+  "pending",
+  "completed",
+  "skipped",
+] as const;
+export const notificationLevels = ["neutral", "warning", "critical"] as const;
 
 export const auditActions = [
   "auth.sign_in",
@@ -22,22 +29,43 @@ export const auditActions = [
   "branch.update",
   "branch.archive",
   "branch.assign_manager",
+  "department.create",
+  "department.update",
+  "department.archive",
   "role.assign",
   "role.revoke",
 ] as const;
 
 export const roleSchema = z.enum(roles);
 export const branchStatusSchema = z.enum(branchStatuses);
+export const departmentStatusSchema = z.enum(departmentStatuses);
 export const organizationMemberStatusSchema = z.enum(organizationMemberStatuses);
+export const organizationOnboardingStatusSchema = z.enum(
+  organizationOnboardingStatuses,
+);
+export const notificationLevelSchema = z.enum(notificationLevels);
 export const auditActionSchema = z.enum(auditActions);
 
 export type Role = z.infer<typeof roleSchema>;
 export type BranchStatus = z.infer<typeof branchStatusSchema>;
+export type DepartmentStatus = z.infer<typeof departmentStatusSchema>;
 export type OrganizationMemberStatus = z.infer<typeof organizationMemberStatusSchema>;
+export type OrganizationOnboardingStatus = z.infer<
+  typeof organizationOnboardingStatusSchema
+>;
+export type NotificationLevel = z.infer<typeof notificationLevelSchema>;
 export type AuditAction = z.infer<typeof auditActionSchema>;
 
 const trimmedString = (min: number, max: number) =>
   z.string().trim().min(min).max(max);
+const optionalTrimmedString = (max: number) =>
+  z.string().trim().max(max).optional().or(z.literal(""));
+const optionalIsoDateString = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Informe uma data válida.")
+  .optional()
+  .or(z.literal(""));
 
 export const normalizeCnpj = (value: string) => value.replace(/\D/g, "");
 
@@ -154,6 +182,38 @@ export const branchIdSchema = z.object({
   branchId: z.uuid(),
 });
 
+export const departmentIdSchema = z.object({
+  departmentId: z.uuid(),
+});
+
+export const createDepartmentBaseSchema = () =>
+  z.object({
+    name: trimmedString(2, 120),
+    code: trimmedString(2, 32).regex(/^[A-Z0-9_-]+$/i, "Use letters, numbers, underscores, or dashes."),
+    branchIds: z.array(z.uuid()).default([]),
+    managerMemberId: z.uuid().optional().nullable(),
+    notes: z.string().trim().max(1000).optional().or(z.literal("")),
+  });
+
+export const departmentBaseSchema = createDepartmentBaseSchema();
+export const createDepartmentSchema = createDepartmentBaseSchema();
+export const createCreateDepartmentSchema = createDepartmentBaseSchema;
+export const createUpdateDepartmentSchema = () =>
+  createDepartmentBaseSchema().extend({
+    status: departmentStatusSchema.optional(),
+  });
+export const updateDepartmentSchema = createUpdateDepartmentSchema();
+
+export const updateOrganizationSchema = z.object({
+  openingDate: optionalIsoDateString,
+  taxRegime: optionalTrimmedString(120),
+  primaryCnae: optionalTrimmedString(120),
+  stateRegistration: optionalTrimmedString(64),
+  municipalRegistration: optionalTrimmedString(64),
+});
+
+export const skipOrganizationOnboardingSchema = z.object({});
+
 export const sessionUserSchema = z.object({
   id: z.string(),
   email: z.email(),
@@ -165,6 +225,12 @@ export const organizationSummarySchema = z.object({
   legalName: z.string(),
   tradeName: z.string().nullable(),
   legalIdentifier: z.string(),
+  openingDate: z.string().nullable(),
+  taxRegime: z.string().nullable(),
+  primaryCnae: z.string().nullable(),
+  stateRegistration: z.string().nullable(),
+  municipalRegistration: z.string().nullable(),
+  onboardingStatus: organizationOnboardingStatusSchema,
 });
 
 export const organizationMemberSummarySchema = z.object({
@@ -179,17 +245,64 @@ export const organizationMemberListSchema = z.array(
   organizationMemberSummarySchema,
 );
 
+export const organizationDirectoryMemberSchema =
+  organizationMemberSummarySchema.extend({
+    roles: z.array(roleSchema),
+    branchIds: z.array(z.uuid()),
+    managedBranchIds: z.array(z.uuid()),
+    hasGlobalAccess: z.boolean(),
+  });
+
+export const organizationDirectoryMemberListSchema = z.array(
+  organizationDirectoryMemberSchema,
+);
+
 export const branchSummarySchema = z.object({
   id: z.uuid(),
   organizationId: z.uuid(),
   name: z.string(),
   code: z.string(),
   legalIdentifier: z.string(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  addressLine1: z.string().nullable(),
+  addressLine2: z.string().nullable(),
+  city: z.string().nullable(),
+  stateOrProvince: z.string().nullable(),
+  postalCode: z.string().nullable(),
+  country: z.string().nullable(),
   isHeadquarters: z.boolean(),
   parentBranchId: z.uuid().nullable(),
   managerMemberId: z.uuid().nullable(),
   status: branchStatusSchema,
 });
+
+export const departmentSummarySchema = z.object({
+  id: z.uuid(),
+  organizationId: z.uuid(),
+  name: z.string(),
+  code: z.string(),
+  status: departmentStatusSchema,
+  managerMemberId: z.uuid().nullable(),
+  managerName: z.string().nullable(),
+  notes: z.string().nullable(),
+  branchIds: z.array(z.uuid()),
+  branchNames: z.array(z.string()),
+});
+
+export const departmentListSchema = z.array(departmentSummarySchema);
+
+export const notificationSummarySchema = z.object({
+  id: z.uuid(),
+  level: notificationLevelSchema,
+  title: z.string(),
+  description: z.string(),
+  actionLabel: z.string().nullable(),
+  href: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const notificationListSchema = z.array(notificationSummarySchema);
 
 export const sessionResponseSchema = z.object({
   user: sessionUserSchema,
@@ -202,8 +315,16 @@ export const sessionResponseSchema = z.object({
 export type BootstrapOrganizationInput = z.infer<typeof bootstrapOrganizationSchema>;
 export type CreateBranchInput = z.infer<typeof createBranchSchema>;
 export type UpdateBranchInput = z.infer<typeof updateBranchSchema>;
+export type CreateDepartmentInput = z.infer<typeof createDepartmentSchema>;
+export type UpdateDepartmentInput = z.infer<typeof updateDepartmentSchema>;
+export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
 export type BranchSummary = z.infer<typeof branchSummarySchema>;
+export type DepartmentSummary = z.infer<typeof departmentSummarySchema>;
 export type OrganizationMemberSummary = z.infer<
   typeof organizationMemberSummarySchema
 >;
+export type OrganizationDirectoryMember = z.infer<
+  typeof organizationDirectoryMemberSchema
+>;
+export type NotificationSummary = z.infer<typeof notificationSummarySchema>;

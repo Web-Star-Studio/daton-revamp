@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",
+    "cf:build": "opennextjs-cloudflare build",
+    "preview": "opennextjs-cloudflare preview",
+    "deploy": "node ./scripts/deploy-with-sentry.mjs",
     "start": "next start --port 3000",
     "lint": "tsc --noEmit -p tsconfig.json",
     "typecheck": "next build",
@@ -13,6 +16,7 @@
   },
   "dependencies": {
     "@daton/contracts": "workspace:*",
+    "@sentry/nextjs": "^10.42.0",
     "better-auth": "1.5.4",
     "clsx": "^2.1.1",
     "next": "16.1.6",
@@ -22,7 +26,9 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.17.1",
     "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3"
+    "@types/react-dom": "^19.2.3",
+    "wrangler": "^4.71.0"
   }
 }

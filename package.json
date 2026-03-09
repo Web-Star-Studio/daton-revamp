@@ -14,6 +14,9 @@
     "test": "pnpm -r test",
     "test:e2e": "playwright test",
     "format": "prettier --check .",
+    "deploy:api": "pnpm --filter @daton/api run deploy",
+    "deploy:web": "pnpm --filter @daton/web run deploy",
+    "deploy:cloudflare": "pnpm run deploy:api && pnpm run deploy:web",
     "db:generate": "pnpm --filter @daton/db db:generate",
     "db:migrate": "pnpm --filter @daton/db db:migrate",
     "db:studio": "pnpm --filter @daton/db db:studio"

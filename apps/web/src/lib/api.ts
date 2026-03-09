@@ -4,11 +4,21 @@ import {
   branchSummarySchema,
   createBootstrapOrganizationSchema,
   createCreateBranchSchema,
+  createCreateDepartmentSchema,
+  organizationSummarySchema,
+  skipOrganizationOnboardingSchema,
   createUpdateBranchSchema,
+  createUpdateDepartmentSchema,
+  departmentSummarySchema,
+  updateOrganizationSchema,
   type BootstrapOrganizationInput,
   type BranchSummary,
   type CreateBranchInput,
+  type CreateDepartmentInput,
+  type DepartmentSummary,
+  type UpdateOrganizationInput,
   type UpdateBranchInput,
+  type UpdateDepartmentInput,
 } from "@daton/contracts";
 
 import { resolvePublicApiBaseUrl, toApiUrl } from "./config";
@@ -91,5 +101,49 @@ export async function updateBranch(branchId: string, input: UpdateBranchInput) {
   });
 }
 
+export async function createDepartment(input: CreateDepartmentInput) {
+  const payload = createCreateDepartmentSchema().parse(input);
+
+  return clientApiFetch("/api/v1/departments", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    schema: departmentSummarySchema,
+  });
+}
+
+export async function updateDepartment(
+  departmentId: string,
+  input: UpdateDepartmentInput,
+) {
+  const payload = createUpdateDepartmentSchema().parse(input);
+
+  return clientApiFetch(`/api/v1/departments/${departmentId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+    schema: departmentSummarySchema,
+  });
+}
+
+export async function updateOrganization(input: UpdateOrganizationInput) {
+  const payload = updateOrganizationSchema.parse(input);
+
+  return clientApiFetch("/api/v1/organization", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+    schema: organizationSummarySchema,
+  });
+}
+
+export async function skipOrganizationOnboarding() {
+  const payload = skipOrganizationOnboardingSchema.parse({});
+
+  return clientApiFetch("/api/v1/organization/onboarding/skip", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    schema: organizationSummarySchema,
+  });
+}
+
 export type ServerBranch = BranchSummary;
+export type ServerDepartment = DepartmentSummary;
 export const apiBaseUrl = resolvePublicApiBaseUrl();

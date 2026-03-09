@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import Image from "next/image";
 import Link from "next/link";
 import { useSelectedLayoutSegment } from "next/navigation";
@@ -10,7 +11,7 @@ import {
   useState,
 } from "react";
 
-import type { ServerSession } from "@/lib/server-api";
+import type { ServerNotification, ServerSession } from "@/lib/server-api";
 import { formatShortName } from "@/lib/utils";
 
 import { AiChatModal } from "./ai-chat-modal";
@@ -25,6 +26,7 @@ import { SignOutButton } from "./sign-out-button";
 
 type AppShellProps = PropsWithChildren<{
   modal?: ReactNode;
+  notifications: ServerNotification[];
   session: ServerSession;
 }>;
 
@@ -44,7 +46,12 @@ const navigation = [
   },
 ];
 
-export function AppShell({ children, modal, session }: AppShellProps) {
+export function AppShell({
+  children,
+  modal,
+  notifications,
+  session,
+}: AppShellProps) {
   const activeModalSegment = useSelectedLayoutSegment("modal");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
@@ -64,6 +71,32 @@ export function AppShell({ children, modal, session }: AppShellProps) {
     isDepartmentModalOpen ||
     isUnitModalOpen ||
     Boolean(activeModalSegment);
+
+  useEffect(() => {
+    Sentry.setUser({
+      id: session.user.id,
+    });
+
+    if (session.organization) {
+      Sentry.setTag("organization.id", session.organization.id);
+      Sentry.setTag(
+        "organization.onboarding_status",
+        session.organization.onboardingStatus,
+      );
+    }
+
+    if (session.effectiveRoles.length > 0) {
+      Sentry.setTag("membership.roles", session.effectiveRoles.join(","));
+      Sentry.setTag("membership.primary_role", session.effectiveRoles[0]);
+    }
+
+    Sentry.setContext("membership", {
+      branchScope: session.branchScope,
+      memberId: session.member?.id ?? null,
+      organizationId: session.organization?.id ?? null,
+      roles: session.effectiveRoles,
+    });
+  }, [session]);
 
   useEffect(() => {
     document.body.classList.toggle("app-modal-open", isAnyModalOpen);
@@ -176,6 +209,7 @@ export function AppShell({ children, modal, session }: AppShellProps) {
         <main className="app-main">
           <div className="app-main__inner">
             <AppHeader
+              notificationCount={notifications.length}
               onAiChatOpen={() => setIsAiChatOpen(true)}
               onAlertsOpen={() => setIsAlertsOpen(true)}
               onSidebarToggle={() =>
@@ -186,7 +220,11 @@ export function AppShell({ children, modal, session }: AppShellProps) {
           </div>
         </main>
       </div>
-      <AlertsModal open={isAlertsOpen} onClose={() => setIsAlertsOpen(false)} />
+      <AlertsModal
+        notifications={notifications}
+        open={isAlertsOpen}
+        onClose={() => setIsAlertsOpen(false)}
+      />
       <AiChatModal open={isAiChatOpen} onClose={() => setIsAiChatOpen(false)} />
       {modal}
     </div>

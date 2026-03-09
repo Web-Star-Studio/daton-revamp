@@ -1,52 +1,53 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect } from "react";
+
+import type { ServerNotification } from "@/lib/server-api";
 
 import { CloseIcon, MaterialIcon } from "./app-icons";
 
 type AlertsModalProps = {
+  notifications: ServerNotification[];
   open: boolean;
   onClose: () => void;
 };
 
-const alerts = [
-  {
+const toneMeta = {
+  critical: {
     icon: "error",
-    itemClassName: "alerts-modal__item--critical",
     iconClassName: "alerts-modal__icon--critical",
-    tone: "critical",
-    level: "Crítico",
-    title: "Certificado Digital Vencido",
-    description:
-      "O certificado A1 da filial RJ expirou há 2 dias. A emissão fiscal precisa de revisão imediata.",
-    action: "Renovar Agora",
-    secondaryAction: "Ignorar",
+    itemClassName: "alerts-modal__item--critical",
+    label: "Crítico",
   },
-  {
+  warning: {
     icon: "warning",
-    itemClassName: "alerts-modal__item--warning",
     iconClassName: "alerts-modal__icon--warning",
-    tone: "warning",
-    level: "Atenção",
-    title: "Inconsistência Cadastral",
-    description:
-      "Endereço da filial SP diverge do cadastro principal e precisa ser revisado.",
-    action: "Revisar Dados",
+    itemClassName: "alerts-modal__item--warning",
+    label: "Atenção",
   },
-  {
-    icon: "payments",
-    itemClassName: "alerts-modal__item--neutral",
+  neutral: {
+    icon: "notifications",
     iconClassName: "alerts-modal__icon--neutral",
-    tone: "neutral",
-    level: "Vence em 5 dias",
-    title: "Guia DAS Disponível",
-    description:
-      "A guia mensal do Simples Nacional já pode ser emitida para a próxima competência.",
-    action: "Baixar Guia",
+    itemClassName: "alerts-modal__item--neutral",
+    label: "Atualização",
   },
-];
+} as const;
 
-export function AlertsModal({ open, onClose }: AlertsModalProps) {
+function formatNotificationDate(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+export function AlertsModal({
+  notifications,
+  open,
+  onClose,
+}: AlertsModalProps) {
+  const latestNotification = notifications[0] ?? null;
+
   useEffect(() => {
     if (!open) return;
 
@@ -81,7 +82,7 @@ export function AlertsModal({ open, onClose }: AlertsModalProps) {
         <header className="app-modal__header">
           <div className="alerts-modal__headline">
             <h2 id="alerts-modal-title">Central de Alertas</h2>
-            <span className="alerts-modal__count">{alerts.length}</span>
+            <span className="alerts-modal__count">{notifications.length}</span>
           </div>
           <button
             aria-label="Fechar alertas"
@@ -93,59 +94,86 @@ export function AlertsModal({ open, onClose }: AlertsModalProps) {
           </button>
         </header>
         <div className="alerts-modal__list" role="list">
-          {alerts.map((alert) => (
+          {notifications.length > 0 ? (
+            notifications.map((notification) => {
+              const meta = toneMeta[notification.level];
+
+              return (
+                <article
+                  className={`alerts-modal__item ${meta.itemClassName}`}
+                  key={notification.id}
+                  role="listitem"
+                >
+                  <div
+                    className={`alerts-modal__icon ${meta.iconClassName}`}
+                    aria-hidden="true"
+                  >
+                    <MaterialIcon icon={meta.icon} />
+                  </div>
+                  <div className="alerts-modal__copy">
+                    <div className="alerts-modal__topline">
+                      <h3>{notification.title}</h3>
+                      <span className={`pill pill--${notification.level}`}>
+                        {meta.label}
+                      </span>
+                    </div>
+                    <p>{notification.description}</p>
+                    <div className="alerts-modal__actions">
+                      {notification.href && notification.actionLabel ? (
+                        <Link
+                          className={`button${notification.level === "critical" ? "" : " button--secondary"}`}
+                          href={notification.href}
+                          onClick={onClose}
+                        >
+                          {notification.actionLabel}
+                        </Link>
+                      ) : null}
+                    </div>
+                    <span>{formatNotificationDate(notification.createdAt)}</span>
+                  </div>
+                </article>
+              );
+            })
+          ) : (
             <article
-              className={`alerts-modal__item ${alert.itemClassName}`}
-              key={alert.title}
+              className="alerts-modal__item alerts-modal__item--neutral"
               role="listitem"
             >
               <div
-                className={`alerts-modal__icon ${alert.iconClassName}`}
+                className="alerts-modal__icon alerts-modal__icon--neutral"
                 aria-hidden="true"
               >
-                <MaterialIcon icon={alert.icon} />
+                <MaterialIcon icon="notifications" />
               </div>
               <div className="alerts-modal__copy">
                 <div className="alerts-modal__topline">
-                  <h3>{alert.title}</h3>
-                  <span className={`pill pill--${alert.tone}`}>
-                    {alert.level}
-                  </span>
+                  <h3>Sem alertas recentes</h3>
+                  <span className="pill pill--neutral">Atualização</span>
                 </div>
-                <p>{alert.description}</p>
-                <div className="alerts-modal__actions">
-                  <button
-                    className={`button${alert.tone === "critical" ? "" : " button--secondary"}`}
-                    type="button"
-                  >
-                    {alert.icon === "payments" ? (
-                      <>
-                        <MaterialIcon icon="download" />
-                        <span>{alert.action}</span>
-                      </>
-                    ) : (
-                      alert.action
-                    )}
-                  </button>
-                  {alert.secondaryAction ? (
-                    <button
-                      className="alerts-modal__secondary-action"
-                      type="button"
-                    >
-                      {alert.secondaryAction}
-                    </button>
-                  ) : null}
-                </div>
+                <p>
+                  Ainda não há eventos recentes persistidos para exibir nesta
+                  central.
+                </p>
               </div>
             </article>
-          ))}
+          )}
         </div>
         <footer className="alerts-modal__footer">
-          <span>Última verificação: há 5 min</span>
-          <button className="alerts-modal__footer-action" type="button">
-            <span>Ver histórico completo</span>
-            <MaterialIcon icon="arrow_forward" />
-          </button>
+          <span>
+            {latestNotification
+              ? `Último evento em ${formatNotificationDate(latestNotification.createdAt)}`
+              : "Aguardando novos eventos do backend"}
+          </span>
+          {notifications.length > 0 ? (
+            <Link
+              className="alerts-modal__footer-action"
+              href="/app/settings/organization"
+              onClick={onClose}
+            >
+              <span>Ver organização</span>
+              <MaterialIcon icon="arrow_forward" />
+            </Link>
+          ) : null}
         </footer>
       </div>
     </div>

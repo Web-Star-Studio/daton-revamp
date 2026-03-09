@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import {
   boolean,
+  date,
   index,
   jsonb,
   pgEnum,
@@ -14,15 +15,22 @@ import {
 import {
   auditActions,
   branchStatuses,
+  departmentStatuses,
+  organizationOnboardingStatuses,
   organizationMemberStatuses,
   roles,
 } from "../../contracts/src/index";
 
 export const roleEnum = pgEnum("role", roles);
 export const branchStatusEnum = pgEnum("branch_status", branchStatuses);
+export const departmentStatusEnum = pgEnum("department_status", departmentStatuses);
 export const organizationMemberStatusEnum = pgEnum(
   "organization_member_status",
   organizationMemberStatuses,
+);
+export const organizationOnboardingStatusEnum = pgEnum(
+  "organization_onboarding_status",
+  organizationOnboardingStatuses,
 );
 export const auditActionEnum = pgEnum("audit_action", auditActions);
 
@@ -33,6 +41,14 @@ export const organizations = pgTable(
     legalName: text("legal_name").notNull(),
     tradeName: text("trade_name"),
     legalIdentifier: text("legal_identifier").notNull(),
+    openingDate: date("opening_date"),
+    taxRegime: text("tax_regime"),
+    primaryCnae: text("primary_cnae"),
+    stateRegistration: text("state_registration"),
+    municipalRegistration: text("municipal_registration"),
+    onboardingStatus: organizationOnboardingStatusEnum("onboarding_status")
+      .default("pending")
+      .notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -132,6 +148,52 @@ export const branchManagerAssignments = pgTable(
   }),
 );
 
+export const departments = pgTable(
+  "departments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    code: text("code").notNull(),
+    managerMemberId: uuid("manager_member_id").references(() => organizationMembers.id, {
+      onDelete: "set null",
+    }),
+    notes: text("notes"),
+    status: departmentStatusEnum("status").default("active").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    orgCodeIdx: uniqueIndex("departments_org_code_idx").on(table.organizationId, table.code),
+  }),
+);
+
+export const departmentBranchAssignments = pgTable(
+  "department_branch_assignments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    departmentId: uuid("department_id")
+      .notNull()
+      .references(() => departments.id, { onDelete: "cascade" }),
+    branchId: uuid("branch_id")
+      .notNull()
+      .references(() => branches.id, { onDelete: "cascade" }),
+    assignedAt: timestamp("assigned_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    departmentBranchUniqueIdx: uniqueIndex("department_branch_assignments_unique_idx").on(
+      table.departmentId,
+      table.branchId,
+    ),
+    branchIdx: index("department_branch_assignments_branch_idx").on(table.branchId),
+  }),
+);
+
 export const auditEvents = pgTable(
   "audit_events",
   {
@@ -154,6 +216,7 @@ export const auditEvents = pgTable(
 export const organizationRelations = relations(organizations, ({ many }) => ({
   members: many(organizationMembers),
   branches: many(branches),
+  departments: many(departments),
   auditEvents: many(auditEvents),
 }));
 
@@ -164,6 +227,7 @@ export const organizationMemberRelations = relations(organizationMembers, ({ one
   }),
   roles: many(memberRoleAssignments),
   managerAssignments: many(branchManagerAssignments),
+  managedDepartments: many(departments),
 }));
 
 export const branchRelations = relations(branches, ({ one, many }) => ({
@@ -176,4 +240,35 @@ export const branchRelations = relations(branches, ({ one, many }) => ({
     references: [branches.id],
   }),
   managerAssignments: many(branchManagerAssignments),
+  departmentAssignments: many(departmentBranchAssignments),
 }));
+
+export const departmentRelations = relations(departments, ({ one, many }) => ({
+  organization: one(organizations, {
+    fields: [departments.organizationId],
+    references: [organizations.id],
+  }),
+  managerMember: one(organizationMembers, {
+    fields: [departments.managerMemberId],
+    references: [organizationMembers.id],
+  }),
+  branchAssignments: many(departmentBranchAssignments),
+}));
+
+export const departmentBranchAssignmentRelations = relations(
+  departmentBranchAssignments,
+  ({ one }) => ({
+    organization: one(organizations, {
+      fields: [departmentBranchAssignments.organizationId],
+      references: [organizations.id],
+    }),
+    department: one(departments, {
+      fields: [departmentBranchAssignments.departmentId],
+      references: [departments.id],
+    }),
+    branch: one(branches, {
+      fields: [departmentBranchAssignments.branchId],
+      references: [branches.id],
+    }),
+  }),
+);

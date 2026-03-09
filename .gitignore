@@ -12,5 +12,6 @@ test-results
 apps/*/.env.local
 apps/*/.dev.vars
 apps/*/.next
+apps/*/.open-next
 packages/*/dist
 tmp

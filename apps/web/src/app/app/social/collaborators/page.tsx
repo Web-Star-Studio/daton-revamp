@@ -1,8 +1,11 @@
 import { CollaboratorsWorkspace } from "@/components/collaborators-workspace";
-import { getServerBranches } from "@/lib/server-api";
+import { getServerBranches, getServerOrganizationMembers } from "@/lib/server-api";
 
 export default async function SocialCollaboratorsPage() {
-  const branches = await getServerBranches();
+  const [branches, members] = await Promise.all([
+    getServerBranches(),
+    getServerOrganizationMembers(),
+  ]);
 
-  return <CollaboratorsWorkspace branches={branches} />;
+  return <CollaboratorsWorkspace branches={branches} members={members} />;
 }

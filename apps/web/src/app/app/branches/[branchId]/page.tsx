@@ -6,6 +6,7 @@ import {
   getServerBranches,
   getServerOrganizationMembers,
   type ServerBranch,
+  type ServerOrganizationMember,
 } from "@/lib/server-api";
 
 type BranchDetailPageProps = {
@@ -38,6 +39,10 @@ export default async function BranchDetailPage({
   const parentBranch = branches.find(
     (candidate: ServerBranch) => candidate.id === branch.parentBranchId,
   );
+  const manager =
+    members.find(
+      (member: ServerOrganizationMember) => member.id === branch.managerMemberId,
+    ) ?? null;
   const isEditOpen = resolvedSearchParams.edit === "1";
 
   return (
@@ -55,19 +60,22 @@ export default async function BranchDetailPage({
             <dl className="definition-list">
               <div>
                 <dt>Logradouro</dt>
-                <dd>Indisponível no payload atual</dd>
+                <dd>{branch.addressLine1 ?? "Não informado"}</dd>
               </div>
               <div>
                 <dt>Bairro / CEP</dt>
-                <dd>Indisponível no payload atual</dd>
+                <dd>
+                  {[branch.addressLine2, branch.postalCode].filter(Boolean).join(" / ") ||
+                    "Não informado"}
+                </dd>
               </div>
               <div>
                 <dt>E-mail</dt>
-                <dd>Indisponível no payload atual</dd>
+                <dd>{branch.email ?? "Não informado"}</dd>
               </div>
               <div>
                 <dt>Telefone</dt>
-                <dd>Indisponível no payload atual</dd>
+                <dd>{branch.phone ?? "Não informado"}</dd>
               </div>
             </dl>
           </article>
@@ -90,7 +98,7 @@ export default async function BranchDetailPage({
               <div>
                 <dt>Responsável gestor</dt>
                 <dd>
-                  {branch.managerMemberId ? "Vinculado" : "Não vinculado"}
+                  {manager ? `${manager.fullName} • ${manager.email}` : "Não vinculado"}
                 </dd>
               </div>
               <div>

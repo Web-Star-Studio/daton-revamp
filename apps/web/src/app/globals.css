@@ -163,6 +163,13 @@ textarea:focus-visible {
   cursor: not-allowed;
 }
 
+.button[aria-disabled="true"],
+.button--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .button--ghost,
 .button--secondary {
   background: rgba(255, 255, 255, 0.7);
@@ -1809,6 +1816,13 @@ textarea:focus-visible {
   box-shadow: 0 10px 24px rgba(29, 29, 31, 0.06);
 }
 
+.organization-choice-card:focus-within {
+  border-color: rgba(0, 122, 255, 0.55);
+  box-shadow:
+    0 0 0 3px rgba(0, 122, 255, 0.16),
+    0 10px 24px rgba(29, 29, 31, 0.06);
+}
+
 .organization-choice-card input {
   position: absolute;
   inset: 0;
@@ -1874,6 +1888,11 @@ textarea:focus-visible {
   border-color: rgba(0, 122, 255, 0.35);
   background: rgba(0, 122, 255, 0.08);
   color: var(--ink);
+}
+
+.organization-goal-chip:focus-within {
+  border-color: rgba(0, 122, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.16);
 }
 
 .challenge-input {

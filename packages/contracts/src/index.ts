@@ -123,6 +123,15 @@ const optionalIsoDateString = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Informe uma data válida.")
   .optional()
   .or(z.literal(""));
+const companyProfileFieldShape = {
+  sector: companySectorSchema,
+  size: companySizeSchema,
+  goals: z.array(businessGoalSchema).min(1, "Selecione ao menos um objetivo."),
+  maturityLevel: maturityLevelSchema,
+  currentChallenges: z
+    .array(z.string().trim().min(1).max(120))
+    .max(12, "Informe no máximo 12 desafios atuais."),
+};
 
 export const normalizeCnpj = (value: string) => value.replace(/\D/g, "");
 
@@ -261,50 +270,52 @@ export const createUpdateDepartmentSchema = () =>
   });
 export const updateDepartmentSchema = createUpdateDepartmentSchema();
 
+const normalizeOptionalString = (value?: string | null) => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+};
+
+export const companyProfileSchema = z
+  .object({
+    ...companyProfileFieldShape,
+    customSector: optionalTrimmedString(120),
+  })
+  .superRefine((value, ctx) => {
+    if (value.sector === "other" && !normalizeOptionalString(value.customSector)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Informe o setor da empresa.",
+        path: ["customSector"],
+      });
+    }
+  });
+
+export const onboardingCompanyProfileSchema = z
+  .object({
+    ...companyProfileFieldShape,
+    customSector: z.string().trim().max(120).nullable(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.sector === "other" && !normalizeOptionalString(value.customSector)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Informe o setor da empresa.",
+        path: ["customSector"],
+      });
+    }
+  });
+
+export const onboardingDataSchema = z.object({
+  company_profile: onboardingCompanyProfileSchema.nullable(),
+});
+
 export const updateOrganizationSchema = z.object({
   openingDate: optionalIsoDateString,
   taxRegime: optionalTrimmedString(120),
   primaryCnae: optionalTrimmedString(120),
   stateRegistration: optionalTrimmedString(64),
   municipalRegistration: optionalTrimmedString(64),
-  companyProfile: z
-    .object({
-      sector: companySectorSchema,
-      customSector: optionalTrimmedString(120),
-      size: companySizeSchema,
-      goals: z.array(businessGoalSchema).min(1, "Selecione ao menos um objetivo."),
-      maturityLevel: maturityLevelSchema,
-      currentChallenges: z
-        .array(z.string().trim().min(1).max(120))
-        .max(12, "Informe no máximo 12 desafios atuais."),
-    })
-    .superRefine((value, ctx) => {
-      if (value.sector === "other" && !normalizeOptionalString(value.customSector)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Informe o setor da empresa.",
-          path: ["customSector"],
-        });
-      }
-    }),
-});
-
-const normalizeOptionalString = (value?: string | null) => {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
-};
-
-export const onboardingCompanyProfileSchema = z.object({
-  sector: companySectorSchema,
-  customSector: z.string().trim().max(120).nullable(),
-  size: companySizeSchema,
-  goals: z.array(businessGoalSchema),
-  maturityLevel: maturityLevelSchema,
-  currentChallenges: z.array(z.string()),
-});
-
-export const onboardingDataSchema = z.object({
-  company_profile: onboardingCompanyProfileSchema.nullable(),
+  companyProfile: companyProfileSchema,
 });
 
 export const sessionUserSchema = z.object({

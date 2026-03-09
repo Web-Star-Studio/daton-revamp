@@ -7,7 +7,7 @@ import {
   organizationMembers,
   organizations,
 } from "@daton/db";
-import type { Role } from "@daton/contracts";
+import type { OnboardingData, Role } from "@daton/contracts";
 import type { DatonAuth } from "@daton/auth";
 
 export type AppDb = ReturnType<typeof createNodeDb>;
@@ -29,16 +29,7 @@ export type SessionSnapshot = {
     primaryCnae: string | null;
     stateRegistration: string | null;
     municipalRegistration: string | null;
-    onboardingData: {
-      company_profile: {
-        sector: string;
-        customSector: string | null;
-        size: string;
-        goals: string[];
-        maturityLevel: string;
-        currentChallenges: string[];
-      } | null;
-    };
+    onboardingData: OnboardingData;
     onboardingStatus: "pending" | "completed" | "skipped";
   } | null;
   member: {

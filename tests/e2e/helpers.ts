@@ -109,7 +109,9 @@ export const completeOrganizationOnboarding = async (
 
   await page.getByRole("button", { name: "Concluir e entrar no app" }).click();
   await page.waitForURL("**/app/settings/organization");
-  await expect(page.getByText("Serviços especializados")).toBeVisible();
+  await expect(
+    page.getByText(overrides?.customSector ?? "Serviços especializados"),
+  ).toBeVisible();
 };
 
 export const createDetachedAuthUser = async (request: APIRequestContext, suffix: string) => {

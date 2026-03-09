@@ -39,7 +39,8 @@ const normalizeOrganizationProfile = (
   input: UpdateOrganizationInput["companyProfile"],
 ) => ({
   sector: input.sector,
-  customSector: normalizeEmpty(input.customSector),
+  customSector:
+    input.sector === "other" ? normalizeEmpty(input.customSector) : null,
   size: input.size,
   goals: input.goals,
   maturityLevel: input.maturityLevel,

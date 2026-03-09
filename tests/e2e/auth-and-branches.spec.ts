@@ -90,7 +90,7 @@ test("wizard blocks access until completion and enforces required onboarding fie
   await expect(page.getByText("Informe o setor da empresa.")).toBeVisible();
 
   await page.getByLabel("Qual é o setor?").fill("Operações urbanas");
-  await page.getByText("Grande").click();
+  await page.locator(".organization-choice-card").filter({ hasText: /^Grande$/ }).click();
   await page.getByRole("button", { name: "Continuar" }).click();
 
   await page.getByRole("button", { name: "Continuar" }).click();

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { OrganizationOnboardingWaiting } from "@/components/organization-onboarding-waiting";
 import { OrganizationProfileForm } from "@/components/organization-profile-form";
 import { requireSession } from "@/lib/session";
 
@@ -71,6 +72,7 @@ export default async function OrganizationOnboardingPage() {
             </>
           ) : (
             <article className="organization-onboarding-waiting">
+              <OrganizationOnboardingWaiting />
               <h2>Ambiente aguardando liberação</h2>
               <p>
                 O onboarding desta organização ainda não foi concluído por um

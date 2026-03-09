@@ -190,6 +190,34 @@ export function OrganizationProfileForm({
     setChallengeInput("");
   };
 
+  const flushPendingChallenge = (sourceDraft: OrganizationProfileDraft) => {
+    const value = challengeInput.trim();
+
+    if (!value) {
+      return sourceDraft;
+    }
+
+    setChallengeInput("");
+
+    if (sourceDraft.companyProfile.currentChallenges.includes(value)) {
+      return sourceDraft;
+    }
+
+    const nextDraft = {
+      ...sourceDraft,
+      companyProfile: {
+        ...sourceDraft.companyProfile,
+        currentChallenges: [
+          ...sourceDraft.companyProfile.currentChallenges,
+          value,
+        ],
+      },
+    };
+
+    setDraft(nextDraft);
+    return nextDraft;
+  };
+
   const removeChallenge = (value: string) => {
     setCompanyProfileField(
       "currentChallenges",
@@ -215,13 +243,13 @@ export function OrganizationProfileForm({
     addChallenge();
   };
 
-  const saveProfile = () => {
+  const saveProfile = (payload: UpdateOrganizationInput) => {
     setError(null);
     setIsPending(true);
 
     startTransition(async () => {
       try {
-        await updateOrganization(normalizedDraft);
+        await updateOrganization(payload);
         router.replace(onSuccessHref);
         router.refresh();
       } catch (organizationError) {
@@ -238,10 +266,12 @@ export function OrganizationProfileForm({
 
   const submitForm = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const draftWithPendingChallenge = flushPendingChallenge(draft);
+    const payload = normalizeDraft(draftWithPendingChallenge);
 
     if (isWizard) {
-      const validationError = getStepError("profile", normalizedDraft)
-        ?? getStepError("goals", normalizedDraft);
+      const validationError = getStepError("profile", payload)
+        ?? getStepError("goals", payload);
 
       if (validationError) {
         setError(validationError);
@@ -249,11 +279,13 @@ export function OrganizationProfileForm({
       }
     }
 
-    saveProfile();
+    saveProfile(payload);
   };
 
   const goNext = () => {
-    const validationError = getStepError(activeStep.id, normalizedDraft);
+    const draftWithPendingChallenge = flushPendingChallenge(draft);
+    const payload = normalizeDraft(draftWithPendingChallenge);
+    const validationError = getStepError(activeStep.id, payload);
 
     if (validationError) {
       setError(validationError);
@@ -625,13 +657,18 @@ export function OrganizationProfileForm({
             {isPending ? "Salvando dados" : saveLabel}
           </button>
           {cancelHref ? (
-            <Link
-              aria-disabled={isPending}
-              className="button button--secondary"
-              href={cancelHref}
-            >
-              Cancelar
-            </Link>
+            isPending ? (
+              <span
+                aria-disabled="true"
+                className="button button--secondary button--disabled"
+              >
+                Cancelar
+              </span>
+            ) : (
+              <Link className="button button--secondary" href={cancelHref}>
+                Cancelar
+              </Link>
+            )
           ) : null}
         </div>
       </form>

@@ -19,6 +19,55 @@ export const organizationOnboardingStatuses = [
   "skipped",
 ] as const;
 export const notificationLevels = ["neutral", "warning", "critical"] as const;
+export const companySectors = [
+  "manufacturing",
+  "agro",
+  "food_beverage",
+  "mining",
+  "oil_gas",
+  "energy",
+  "chemical",
+  "pulp_paper",
+  "steel",
+  "logistics",
+  "financial",
+  "telecom",
+  "public",
+  "pharma_cosmetics",
+  "automotive",
+  "technology",
+  "consumer_goods",
+  "utilities",
+  "healthcare",
+  "education",
+  "retail",
+  "construction",
+  "services",
+  "other",
+] as const;
+export const companySizes = [
+  "micro",
+  "small",
+  "medium",
+  "large",
+  "xlarge",
+  "enterprise",
+] as const;
+export const businessGoals = [
+  "emissions_reduction",
+  "environmental_compliance",
+  "health_safety",
+  "energy_efficiency",
+  "water_management",
+  "waste_reduction",
+  "sustainability",
+  "quality",
+  "compliance",
+  "performance",
+  "innovation",
+  "cost_reduction",
+] as const;
+export const maturityLevels = ["beginner", "intermediate", "advanced"] as const;
 
 export const auditActions = [
   "auth.sign_in",
@@ -45,6 +94,10 @@ export const organizationOnboardingStatusSchema = z.enum(
 );
 export const notificationLevelSchema = z.enum(notificationLevels);
 export const auditActionSchema = z.enum(auditActions);
+export const companySectorSchema = z.enum(companySectors);
+export const companySizeSchema = z.enum(companySizes);
+export const businessGoalSchema = z.enum(businessGoals);
+export const maturityLevelSchema = z.enum(maturityLevels);
 
 export type Role = z.infer<typeof roleSchema>;
 export type BranchStatus = z.infer<typeof branchStatusSchema>;
@@ -55,6 +108,10 @@ export type OrganizationOnboardingStatus = z.infer<
 >;
 export type NotificationLevel = z.infer<typeof notificationLevelSchema>;
 export type AuditAction = z.infer<typeof auditActionSchema>;
+export type CompanySector = z.infer<typeof companySectorSchema>;
+export type CompanySize = z.infer<typeof companySizeSchema>;
+export type BusinessGoal = z.infer<typeof businessGoalSchema>;
+export type MaturityLevel = z.infer<typeof maturityLevelSchema>;
 
 const trimmedString = (min: number, max: number) =>
   z.string().trim().min(min).max(max);
@@ -210,9 +267,45 @@ export const updateOrganizationSchema = z.object({
   primaryCnae: optionalTrimmedString(120),
   stateRegistration: optionalTrimmedString(64),
   municipalRegistration: optionalTrimmedString(64),
+  companyProfile: z
+    .object({
+      sector: companySectorSchema,
+      customSector: optionalTrimmedString(120),
+      size: companySizeSchema,
+      goals: z.array(businessGoalSchema).min(1, "Selecione ao menos um objetivo."),
+      maturityLevel: maturityLevelSchema,
+      currentChallenges: z
+        .array(z.string().trim().min(1).max(120))
+        .max(12, "Informe no máximo 12 desafios atuais."),
+    })
+    .superRefine((value, ctx) => {
+      if (value.sector === "other" && !normalizeOptionalString(value.customSector)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Informe o setor da empresa.",
+          path: ["customSector"],
+        });
+      }
+    }),
 });
 
-export const skipOrganizationOnboardingSchema = z.object({});
+const normalizeOptionalString = (value?: string | null) => {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+};
+
+export const onboardingCompanyProfileSchema = z.object({
+  sector: companySectorSchema,
+  customSector: z.string().trim().max(120).nullable(),
+  size: companySizeSchema,
+  goals: z.array(businessGoalSchema),
+  maturityLevel: maturityLevelSchema,
+  currentChallenges: z.array(z.string()),
+});
+
+export const onboardingDataSchema = z.object({
+  company_profile: onboardingCompanyProfileSchema.nullable(),
+});
 
 export const sessionUserSchema = z.object({
   id: z.string(),
@@ -231,6 +324,7 @@ export const organizationSummarySchema = z.object({
   stateRegistration: z.string().nullable(),
   municipalRegistration: z.string().nullable(),
   onboardingStatus: organizationOnboardingStatusSchema,
+  onboardingData: onboardingDataSchema,
 });
 
 export const organizationMemberSummarySchema = z.object({
@@ -321,6 +415,8 @@ export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
 export type BranchSummary = z.infer<typeof branchSummarySchema>;
 export type DepartmentSummary = z.infer<typeof departmentSummarySchema>;
+export type OnboardingCompanyProfile = z.infer<typeof onboardingCompanyProfileSchema>;
+export type OnboardingData = z.infer<typeof onboardingDataSchema>;
 export type OrganizationMemberSummary = z.infer<
   typeof organizationMemberSummarySchema
 >;

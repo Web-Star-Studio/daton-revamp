@@ -71,15 +71,6 @@ function getHeaderMeta(pathname: string): HeaderMeta {
     };
   }
 
-  if (pathname === "/app/onboarding/organization") {
-    return {
-      crumbs: [
-        { href: "/app/settings/organization", label: "Organização" },
-        { href: pathname, label: "Onboarding" },
-      ],
-    };
-  }
-
   if (pathname === "/app/social/collaborators") {
     return {
       crumbs: [{ href: pathname, label: "Gestão de Colaboradores" }],

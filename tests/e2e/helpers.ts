@@ -55,8 +55,12 @@ export const createWorkspace = async (
   await page.getByLabel("Código da matriz").fill(hqCode);
   await page.getByRole("button", { name: "Criar ambiente Daton" }).click();
 
-  await page.waitForURL("**/app");
-  await expect(page.getByRole("heading", { level: 2, name: tradeName })).toBeVisible();
+  await page.waitForURL("**/onboarding/organization");
+  await expect(
+    page.getByRole("heading", {
+      name: new RegExp(`Estruture ${tradeName}`),
+    }),
+  ).toBeVisible();
 
   return {
     legalName,
@@ -69,6 +73,43 @@ export const createWorkspace = async (
     hqCode,
     hqLegalIdentifier,
   };
+};
+
+export const completeOrganizationOnboarding = async (
+  page: Page,
+  overrides?: Partial<{
+    customSector: string;
+    openingDate: string;
+  }>,
+) => {
+  await page.selectOption("#sector", "other");
+  await page.getByLabel("Qual é o setor?").fill(
+    overrides?.customSector ?? "Serviços especializados",
+  );
+  await page.getByText("Média").click();
+  await page.getByRole("button", { name: "Continuar" }).click();
+
+  await page.getByText("Redução de emissões").click();
+  await page.getByText("Compliance").click();
+  await page.getByText("Avançado").click();
+  await page.getByRole("button", { name: "Continuar" }).click();
+
+  await page.getByLabel("Desafios atuais").fill("Padronizar indicadores ESG");
+  await page.getByRole("button", { name: "Adicionar" }).click();
+  await page.getByRole("button", { name: "Continuar" }).click();
+
+  await page.getByLabel("Data de abertura").fill(
+    overrides?.openingDate ?? "2020-01-15",
+  );
+  await page.getByLabel("Regime tributário").fill("Lucro Real");
+  await page.getByLabel("CNAE principal").fill("62.01-5-01");
+  await page.getByLabel("Inscrição estadual").fill("123456789");
+  await page.getByLabel("Inscrição municipal").fill("987654321");
+  await page.getByRole("button", { name: "Continuar" }).click();
+
+  await page.getByRole("button", { name: "Concluir e entrar no app" }).click();
+  await page.waitForURL("**/app/settings/organization");
+  await expect(page.getByText("Serviços especializados")).toBeVisible();
 };
 
 export const createDetachedAuthUser = async (request: APIRequestContext, suffix: string) => {
@@ -141,6 +182,23 @@ export const getAssignedManagerMemberId = async (branchCode: string) => {
     `;
 
     return assignment?.member_id ?? null;
+  } finally {
+    await sql.end();
+  }
+};
+
+export const setOrganizationOnboardingStatus = async (input: {
+  legalIdentifier: string;
+  status: "pending" | "completed" | "skipped";
+}) => {
+  const sql = postgres(databaseUrl, { prepare: false });
+
+  try {
+    await sql`
+      update organizations
+      set onboarding_status = ${input.status}
+      where legal_identifier = ${input.legalIdentifier}
+    `;
   } finally {
     await sql.end();
   }

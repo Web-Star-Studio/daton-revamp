@@ -9,7 +9,6 @@ import {
   createCreateDepartmentSchema,
   createUpdateDepartmentSchema,
   departmentIdSchema,
-  skipOrganizationOnboardingSchema,
   updateOrganizationSchema,
   type AuditAction,
   type CreateDepartmentInput,
@@ -35,6 +34,19 @@ const normalizeEmpty = (value?: string | null) => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 };
+
+const normalizeOrganizationProfile = (
+  input: UpdateOrganizationInput["companyProfile"],
+) => ({
+  sector: input.sector,
+  customSector: normalizeEmpty(input.customSector),
+  size: input.size,
+  goals: input.goals,
+  maturityLevel: input.maturityLevel,
+  currentChallenges: input.currentChallenges
+    .map((challenge) => challenge.trim())
+    .filter(Boolean),
+});
 
 const parseCreateDepartmentInput = async (
   c: any,
@@ -73,20 +85,6 @@ const parseUpdateOrganizationInput = async (
 ): Promise<UpdateOrganizationInput> => {
   try {
     return updateOrganizationSchema.parse(await c.req.json());
-  } catch (error) {
-    if (error instanceof ZodError) {
-      throw new HTTPException(400, {
-        message: error.issues[0]?.message ?? "Dados inválidos.",
-      });
-    }
-
-    throw error;
-  }
-};
-
-const parseSkipOrganizationOnboardingInput = async (c: any) => {
-  try {
-    return skipOrganizationOnboardingSchema.parse(await c.req.json());
   } catch (error) {
     if (error instanceof ZodError) {
       throw new HTTPException(400, {
@@ -245,6 +243,7 @@ const serializeOrganization = async (
       primaryCnae: organizations.primaryCnae,
       stateRegistration: organizations.stateRegistration,
       municipalRegistration: organizations.municipalRegistration,
+      onboardingData: organizations.onboardingData,
       onboardingStatus: organizations.onboardingStatus,
     })
     .from(organizations)
@@ -408,6 +407,7 @@ organizationRoutes.patch(
     const db = c.get("db");
     const organization = snapshot.organization;
     const member = snapshot.member;
+    const companyProfile = normalizeOrganizationProfile(input.companyProfile);
 
     await db.transaction(async (tx: AppDbExecutor) => {
       await tx
@@ -418,6 +418,9 @@ organizationRoutes.patch(
           primaryCnae: normalizeEmpty(input.primaryCnae),
           stateRegistration: normalizeEmpty(input.stateRegistration),
           municipalRegistration: normalizeEmpty(input.municipalRegistration),
+          onboardingData: {
+            company_profile: companyProfile,
+          },
           onboardingStatus: "completed",
           updatedAt: new Date(),
         })
@@ -435,48 +438,7 @@ organizationRoutes.patch(
           openingDate: normalizeEmpty(input.openingDate),
           taxRegime: normalizeEmpty(input.taxRegime),
           primaryCnae: normalizeEmpty(input.primaryCnae),
-        },
-      });
-    });
-
-    return c.json(await serializeOrganization(db, organization.id));
-  },
-);
-
-organizationRoutes.post(
-  "/organization/onboarding/skip",
-  requireRoles("owner", "admin"),
-  async (c) => {
-    const snapshot = c.get("sessionSnapshot");
-
-    if (!snapshot?.organization || !snapshot.member) {
-      throw new HTTPException(401, { message: "Autenticação obrigatória." });
-    }
-
-    await parseSkipOrganizationOnboardingInput(c);
-
-    const db = c.get("db");
-    const organization = snapshot.organization;
-    const member = snapshot.member;
-
-    await db.transaction(async (tx: AppDbExecutor) => {
-      await tx
-        .update(organizations)
-        .set({
-          onboardingStatus: "skipped",
-          updatedAt: new Date(),
-        })
-        .where(eq(organizations.id, organization.id));
-
-      await recordAuditEvent(tx, {
-        action: "organization.update",
-        entityType: "organization",
-        entityId: organization.id,
-        organizationId: organization.id,
-        actorUserId: snapshot.user.id,
-        actorMemberId: member.id,
-        metadata: {
-          onboardingStatus: "skipped",
+          companyProfile,
         },
       });
     });

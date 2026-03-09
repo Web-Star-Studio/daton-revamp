@@ -29,6 +29,16 @@ export type SessionSnapshot = {
     primaryCnae: string | null;
     stateRegistration: string | null;
     municipalRegistration: string | null;
+    onboardingData: {
+      company_profile: {
+        sector: string;
+        customSector: string | null;
+        size: string;
+        goals: string[];
+        maturityLevel: string;
+        currentChallenges: string[];
+      } | null;
+    };
     onboardingStatus: "pending" | "completed" | "skipped";
   } | null;
   member: {
@@ -71,6 +81,7 @@ export const getSessionSnapshot = async (
       organizationPrimaryCnae: organizations.primaryCnae,
       organizationStateRegistration: organizations.stateRegistration,
       organizationMunicipalRegistration: organizations.municipalRegistration,
+      organizationOnboardingData: organizations.onboardingData,
       organizationOnboardingStatus: organizations.onboardingStatus,
     })
     .from(organizationMembers)
@@ -142,6 +153,7 @@ export const getSessionSnapshot = async (
       primaryCnae: member.organizationPrimaryCnae,
       stateRegistration: member.organizationStateRegistration,
       municipalRegistration: member.organizationMunicipalRegistration,
+      onboardingData: member.organizationOnboardingData,
       onboardingStatus: member.organizationOnboardingStatus,
     },
     member: {

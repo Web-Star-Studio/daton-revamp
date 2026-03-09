@@ -9,6 +9,12 @@ import { OrganizationProfileForm } from "@/components/organization-profile-form"
 import { OrganizationDepartmentsWorkspace } from "@/components/organization-departments-workspace";
 import { OrganizationUnitsWorkspace } from "@/components/organization-units-workspace";
 import {
+  formatCompanySector,
+  getGoalLabel,
+  getMaturityLabel,
+  getSizeLabel,
+} from "@/lib/organization-profile";
+import {
   getServerBranches,
   getServerDepartments,
   getServerOrganizationMembers,
@@ -241,7 +247,7 @@ function formatOnboardingStatus(status: SessionOrganization["onboardingStatus"])
     case "completed":
       return "Onboarding concluído";
     case "skipped":
-      return "Onboarding pulado";
+      return "Onboarding incompleto";
     default:
       return "Onboarding pendente";
   }
@@ -439,6 +445,8 @@ function OrganizationOverviewPanel({
   selectedStatus: string;
   editHref?: string | null;
 }) {
+  const companyProfile = organization.onboardingData.company_profile;
+
   return (
     <div className="organization-layout">
       <OrganizationTreePane
@@ -524,6 +532,60 @@ function OrganizationOverviewPanel({
                   <dt>Inscrição Municipal</dt>
                   <dd className="organization-data-list__mono">
                     {formatOrganizationValue(organization.municipalRegistration)}
+                  </dd>
+                </div>
+              </dl>
+            </article>
+
+            <article className="organization-card">
+              <div className="organization-card__heading">
+                <h3 className="organization-card__title">
+                  <MaterialIcon icon="track_changes" />
+                  <span>Perfil operacional</span>
+                </h3>
+              </div>
+              <dl className="organization-data-list">
+                <div>
+                  <dt>Setor</dt>
+                  <dd>
+                    {companyProfile
+                      ? formatCompanySector(
+                          companyProfile.sector,
+                          companyProfile.customSector,
+                        )
+                      : "Não informado"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Porte</dt>
+                  <dd>
+                    {companyProfile
+                      ? getSizeLabel(companyProfile.size)
+                      : "Não informado"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Maturidade</dt>
+                  <dd>
+                    {companyProfile
+                      ? getMaturityLabel(companyProfile.maturityLevel)
+                      : "Não informado"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Objetivos</dt>
+                  <dd>
+                    {companyProfile && companyProfile.goals.length > 0
+                      ? companyProfile.goals.map((goal) => getGoalLabel(goal)).join(", ")
+                      : "Não informado"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Desafios atuais</dt>
+                  <dd>
+                    {companyProfile && companyProfile.currentChallenges.length > 0
+                      ? companyProfile.currentChallenges.join(", ")
+                      : "Nenhum desafio registrado"}
                   </dd>
                 </div>
               </dl>
@@ -654,10 +716,11 @@ export default async function OrganizationSettingsPage({
         <article className="content-panel organization-profile-card">
           <header className="organization-profile-card__header">
             <p className="workspace-kicker">Organização</p>
-            <h2>Atualize os dados fiscais e cadastrais complementares.</h2>
+            <h2>Atualize o perfil operacional e os dados cadastrais.</h2>
             <p>
-              Este é o mesmo formulário usado no onboarding inicial da
-              organização. Você pode salvar parcialmente e revisar quando quiser.
+              Este é o mesmo conjunto de campos usado no onboarding dedicado da
+              organização. Revise estratégia, contexto operacional e dados
+              cadastrais em uma única superfície.
             </p>
           </header>
           <OrganizationProfileForm

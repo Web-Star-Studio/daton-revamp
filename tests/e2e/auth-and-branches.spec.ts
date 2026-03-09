@@ -2,12 +2,14 @@ import { expect, test } from "@playwright/test";
 
 import {
   attachMemberToOrganization,
+  completeOrganizationOnboarding,
   createDetachedAuthUser,
   createTestCnpj,
   createUniqueId,
   createWorkspace,
   expectRedirectToSignIn,
   getAssignedManagerMemberId,
+  setOrganizationOnboardingStatus,
 } from "./helpers";
 
 test("bootstrap, branch management, and auth flows work end to end", async ({ page, request }) => {
@@ -18,6 +20,10 @@ test("bootstrap, branch management, and auth flows work end to end", async ({ pa
   const branchCnpj = createTestCnpj(`${suffix}02`);
   const duplicateBranchCnpj = createTestCnpj(`${suffix}03`);
   const blockedHeadquartersCnpj = createTestCnpj(`${suffix}04`);
+
+  await page.goto("/app");
+  await page.waitForURL("**/onboarding/organization");
+  await completeOrganizationOnboarding(page);
 
   await page.getByRole("link", { name: "Nova filial" }).click();
   await expect(page.getByRole("heading", { name: "Criar filial" })).toBeVisible();
@@ -68,6 +74,48 @@ test("bootstrap, branch management, and auth flows work end to end", async ({ pa
 
   await page.getByLabel("Senha").fill(workspace.password);
   await page.getByRole("button", { name: "Entrar no ambiente" }).click();
-  await page.waitForURL("**/app");
+  await page.waitForURL("**/app/settings/organization");
   await expect(page.getByRole("heading", { level: 2, name: workspace.tradeName })).toBeVisible();
+});
+
+test("wizard blocks access until completion and enforces required onboarding fields", async ({ page }) => {
+  const suffix = createUniqueId("onboarding");
+  const workspace = await createWorkspace(page, suffix);
+
+  await page.goto("/app");
+  await page.waitForURL("**/onboarding/organization");
+
+  await page.selectOption("#sector", "other");
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await expect(page.getByText("Informe o setor da empresa.")).toBeVisible();
+
+  await page.getByLabel("Qual é o setor?").fill("Operações urbanas");
+  await page.getByText("Grande").click();
+  await page.getByRole("button", { name: "Continuar" }).click();
+
+  await page.getByRole("button", { name: "Continuar" }).click();
+  await expect(page.getByText("Selecione ao menos um objetivo de negócio.")).toBeVisible();
+
+  await page.goto("/app/settings/organization");
+  await page.waitForURL("**/onboarding/organization");
+
+  await setOrganizationOnboardingStatus({
+    legalIdentifier: workspace.legalIdentifier,
+    status: "skipped",
+  });
+
+  await page.goto("/app/settings/organization");
+  await page.waitForURL("**/onboarding/organization");
+
+  await completeOrganizationOnboarding(page, {
+    customSector: "Operações urbanas",
+    openingDate: "2019-03-10",
+  });
+
+  await page.getByRole("link", { name: "Editar dados" }).click();
+  await page.getByLabel("Qual é o setor?").fill("Operações industriais");
+  await page.getByText("Iniciante").click();
+  await page.getByRole("button", { name: "Salvar dados" }).click();
+  await expect(page.getByText("Operações industriais")).toBeVisible();
+  await expect(page.getByText("Iniciante")).toBeVisible();
 });

@@ -38,7 +38,7 @@ export function BootstrapForm() {
         startTransition(async () => {
           try {
             await bootstrapOrganization(payload);
-            router.replace("/app");
+            router.replace("/onboarding/organization");
             router.refresh();
           } catch (bootstrapError) {
             setError(

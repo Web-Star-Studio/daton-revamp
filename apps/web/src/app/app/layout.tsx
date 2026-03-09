@@ -1,4 +1,5 @@
 import type { PropsWithChildren, ReactNode } from "react";
+import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
 import { AuthRedirect } from "@/components/auth-redirect";
@@ -17,6 +18,14 @@ export default async function WorkspaceLayout({
 
   if (!session) {
     return <AuthRedirect href="/sign-in" />;
+  }
+
+  if (!session.organization) {
+    redirect("/create-organization");
+  }
+
+  if (session.organization.onboardingStatus !== "completed") {
+    redirect("/onboarding/organization");
   }
 
   const notifications = session.organization

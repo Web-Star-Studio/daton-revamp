@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   date,
@@ -15,6 +15,7 @@ import {
 import {
   auditActions,
   branchStatuses,
+  type OnboardingData,
   departmentStatuses,
   organizationOnboardingStatuses,
   organizationMemberStatuses,
@@ -46,6 +47,10 @@ export const organizations = pgTable(
     primaryCnae: text("primary_cnae"),
     stateRegistration: text("state_registration"),
     municipalRegistration: text("municipal_registration"),
+    onboardingData: jsonb("onboarding_data")
+      .$type<OnboardingData>()
+      .default(sql`'{"company_profile":null}'::jsonb`)
+      .notNull(),
     onboardingStatus: organizationOnboardingStatusEnum("onboarding_status")
       .default("pending")
       .notNull(),

@@ -6,7 +6,6 @@ import {
   createCreateBranchSchema,
   createCreateDepartmentSchema,
   organizationSummarySchema,
-  skipOrganizationOnboardingSchema,
   createUpdateBranchSchema,
   createUpdateDepartmentSchema,
   departmentSummarySchema,
@@ -129,16 +128,6 @@ export async function updateOrganization(input: UpdateOrganizationInput) {
 
   return clientApiFetch("/api/v1/organization", {
     method: "PATCH",
-    body: JSON.stringify(payload),
-    schema: organizationSummarySchema,
-  });
-}
-
-export async function skipOrganizationOnboarding() {
-  const payload = skipOrganizationOnboardingSchema.parse({});
-
-  return clientApiFetch("/api/v1/organization/onboarding/skip", {
-    method: "POST",
     body: JSON.stringify(payload),
     schema: organizationSummarySchema,
   });

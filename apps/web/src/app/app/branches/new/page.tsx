@@ -1,8 +1,14 @@
 import { BranchForm } from "@/components/branch-form";
-import { getServerBranches } from "@/lib/server-api";
+import {
+  getServerBranches,
+  getServerOrganizationMembers,
+} from "@/lib/server-api";
 
 export default async function NewBranchPage() {
-  const branches = await getServerBranches();
+  const [branches, members] = await Promise.all([
+    getServerBranches(),
+    getServerOrganizationMembers(),
+  ]);
 
   return (
     <section className="workspace-section">
@@ -14,7 +20,7 @@ export default async function NewBranchPage() {
         </p>
       </header>
       <article className="content-panel">
-        <BranchForm branches={branches} />
+        <BranchForm branches={branches} members={members} />
       </article>
     </section>
   );

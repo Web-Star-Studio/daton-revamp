@@ -3,8 +3,10 @@ import { z } from "zod";
 
 import {
   branchSummarySchema,
+  organizationMemberListSchema,
   sessionResponseSchema,
   type BranchSummary,
+  type OrganizationMemberSummary,
   type SessionResponse,
 } from "@daton/contracts";
 
@@ -72,5 +74,11 @@ export const getServerBranches = async () =>
 export const getServerBranch = async (branchId: string) =>
   serverApiFetch(`/api/v1/branches/${branchId}`, branchSummarySchema, { allowUnauthorized: false });
 
+export const getServerOrganizationMembers = async () =>
+  serverApiFetch("/api/v1/members", organizationMemberListSchema, {
+    allowUnauthorized: false,
+  });
+
 export type ServerSession = SessionResponse;
 export type ServerBranch = BranchSummary;
+export type ServerOrganizationMember = OrganizationMemberSummary;

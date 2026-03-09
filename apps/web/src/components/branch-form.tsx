@@ -5,15 +5,24 @@ import { startTransition, useState } from "react";
 
 import { formatCnpj, type UpdateBranchInput } from "@daton/contracts";
 import { createBranch, updateBranch } from "@/lib/api";
-import { type ServerBranch } from "@/lib/server-api";
+import {
+  type ServerBranch,
+  type ServerOrganizationMember,
+} from "@/lib/server-api";
 
 type BranchFormProps = {
   branches: ServerBranch[];
+  members: ServerOrganizationMember[];
   branch?: ServerBranch;
   onSuccess?: (branch: ServerBranch) => void;
 };
 
-export function BranchForm({ branches, branch, onSuccess }: BranchFormProps) {
+export function BranchForm({
+  branches,
+  members,
+  branch,
+  onSuccess,
+}: BranchFormProps) {
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -180,14 +189,20 @@ export function BranchForm({ branches, branch, onSuccess }: BranchFormProps) {
         </select>
       </div>
       <div className="field">
-        <label htmlFor="managerMemberId">ID do membro gestor</label>
-        <input
+        <label htmlFor="managerMemberId">Membro gestor</label>
+        <select
           defaultValue={branch?.managerMemberId ?? ""}
           id="managerMemberId"
           name="managerMemberId"
-          placeholder="UUID do diretório de membros"
-          type="text"
-        />
+        >
+          <option value="">Sem gestor vinculado</option>
+          {members.map((member) => (
+            <option key={member.id} value={member.id}>
+              {member.fullName} • {member.email}
+              {member.status === "inactive" ? " (inativo)" : ""}
+            </option>
+          ))}
+        </select>
       </div>
       {branch ? (
         <div className="field">

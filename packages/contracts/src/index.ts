@@ -175,6 +175,10 @@ export const organizationMemberSummarySchema = z.object({
   status: organizationMemberStatusSchema,
 });
 
+export const organizationMemberListSchema = z.array(
+  organizationMemberSummarySchema,
+);
+
 export const branchSummarySchema = z.object({
   id: z.uuid(),
   organizationId: z.uuid(),
@@ -200,3 +204,6 @@ export type CreateBranchInput = z.infer<typeof createBranchSchema>;
 export type UpdateBranchInput = z.infer<typeof updateBranchSchema>;
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
 export type BranchSummary = z.infer<typeof branchSummarySchema>;
+export type OrganizationMemberSummary = z.infer<
+  typeof organizationMemberSummarySchema
+>;

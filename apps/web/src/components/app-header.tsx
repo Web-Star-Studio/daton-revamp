@@ -7,7 +7,20 @@ import {
   OPEN_COLLABORATOR_CREATION_EVENT,
   OPEN_COLLABORATOR_EXPORT_EVENT,
   OPEN_COLLABORATOR_IMPORT_EVENT,
+  OPEN_ROLE_CREATION_EVENT,
+  OPEN_ROLE_EDITION_EVENT,
+  OPEN_ROLE_EXPORT_EVENT,
+  OPEN_ROLE_IMPORT_EVENT,
 } from "./collaborators-events";
+import {
+  OPEN_DEPARTMENT_CREATION_EVENT,
+  OPEN_DEPARTMENT_EXPORT_EVENT,
+  OPEN_DEPARTMENT_IMPORT_EVENT,
+} from "./organization-departments-events";
+import {
+  OPEN_UNIT_EXPORT_EVENT,
+  OPEN_UNIT_IMPORT_EVENT,
+} from "./organization-units-events";
 import {
   AiChatIcon,
   BellIcon,
@@ -32,6 +45,7 @@ type HeaderMeta = {
 };
 
 const branchDetailMatcher = /^\/app\/branches\/[^/]+$/;
+const collaboratorDetailMatcher = /^\/app\/social\/collaborators\/[^/]+$/;
 
 function getHeaderMeta(pathname: string): HeaderMeta {
   if (pathname === "/app") {
@@ -76,6 +90,18 @@ function getHeaderMeta(pathname: string): HeaderMeta {
     };
   }
 
+  if (collaboratorDetailMatcher.test(pathname)) {
+    return {
+      crumbs: [
+        {
+          href: "/app/social/collaborators",
+          label: "Gestão de Colaboradores",
+        },
+        { href: pathname, label: "Detalhes do colaborador" },
+      ],
+    };
+  }
+
   return {
     crumbs: [{ href: pathname, label: "Workspace" }],
   };
@@ -91,9 +117,21 @@ export function AppHeader({
   const searchParams = useSearchParams();
   const meta = getHeaderMeta(pathname);
   const isBranchDetail = branchDetailMatcher.test(pathname);
+  const isCollaboratorDetail = collaboratorDetailMatcher.test(pathname);
   const isOrganizationPage = pathname === "/app/settings/organization";
+  const activeOrganizationTab =
+    searchParams.get("tab") === "departments" ? "departments" : "units";
+  const activeCollaboratorTab =
+    searchParams.get("tab") === "roles" ? "roles" : "overview";
+  const selectedRoleId = searchParams.get("role");
 
   const openBranchEditor = () => {
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+    nextSearchParams.set("edit", "1");
+    router.replace(`${pathname}?${nextSearchParams.toString()}`);
+  };
+
+  const openCollaboratorEditor = () => {
     const nextSearchParams = new URLSearchParams(searchParams.toString());
     nextSearchParams.set("edit", "1");
     router.replace(`${pathname}?${nextSearchParams.toString()}`);
@@ -137,18 +175,64 @@ export function AppHeader({
         </div>
       </div>
       <div className="app-header__actions" aria-label="Ações do ambiente">
-        {isOrganizationPage ? (
-          <Link className="button button--secondary" href="/app/branches/new">
-            Criar filial
-          </Link>
+        {isOrganizationPage && activeOrganizationTab === "units" ? (
+          <>
+            <button
+              className="button button--secondary"
+              onClick={() =>
+                window.dispatchEvent(new Event(OPEN_UNIT_IMPORT_EVENT))
+              }
+              type="button"
+            >
+              Importar
+            </button>
+            <button
+              className="button button--secondary"
+              onClick={() =>
+                window.dispatchEvent(new Event(OPEN_UNIT_EXPORT_EVENT))
+              }
+              type="button"
+            >
+              Exportar
+            </button>
+            <Link className="button" href="/app/branches/new">
+              Criar unidade
+            </Link>
+          </>
         ) : null}
-        {isOrganizationPage ? (
-          <button className="button" onClick={openBranchEditor} type="button">
-            <EditIcon />
-            <span>Editar unidade</span>
-          </button>
+        {isOrganizationPage && activeOrganizationTab === "departments" ? (
+          <>
+            <button
+              className="button button--secondary"
+              onClick={() =>
+                window.dispatchEvent(new Event(OPEN_DEPARTMENT_IMPORT_EVENT))
+              }
+              type="button"
+            >
+              Importar
+            </button>
+            <button
+              className="button button--secondary"
+              onClick={() =>
+                window.dispatchEvent(new Event(OPEN_DEPARTMENT_EXPORT_EVENT))
+              }
+              type="button"
+            >
+              Exportar
+            </button>
+            <button
+              className="button"
+              onClick={() =>
+                window.dispatchEvent(new Event(OPEN_DEPARTMENT_CREATION_EVENT))
+              }
+              type="button"
+            >
+              Criar departamento
+            </button>
+          </>
         ) : null}
-        {pathname === "/app/social/collaborators" ? (
+        {pathname === "/app/social/collaborators" &&
+        activeCollaboratorTab === "overview" ? (
           <>
             <button
               className="button button--secondary"
@@ -178,6 +262,80 @@ export function AppHeader({
               type="button"
             >
               Adicionar colaborador
+            </button>
+          </>
+        ) : null}
+        {pathname === "/app/social/collaborators" &&
+        activeCollaboratorTab === "roles" ? (
+          <>
+            <button
+              className="button button--secondary"
+              onClick={() =>
+                window.dispatchEvent(new Event(OPEN_ROLE_IMPORT_EVENT))
+              }
+              type="button"
+            >
+              Importar
+            </button>
+            <button
+              className="button button--secondary"
+              onClick={() =>
+                window.dispatchEvent(new Event(OPEN_ROLE_EXPORT_EVENT))
+              }
+              type="button"
+            >
+              Exportar
+            </button>
+            {selectedRoleId ? (
+              <button
+                className="button button--secondary"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent(OPEN_ROLE_EDITION_EVENT, {
+                      detail: { roleId: selectedRoleId },
+                    }),
+                  )
+                }
+                type="button"
+              >
+                <EditIcon />
+                <span>Editar cargo</span>
+              </button>
+            ) : null}
+            <button
+              className="button"
+              onClick={() =>
+                window.dispatchEvent(new Event(OPEN_ROLE_CREATION_EVENT))
+              }
+              type="button"
+            >
+              Adicionar cargo
+            </button>
+          </>
+        ) : null}
+        {isCollaboratorDetail ? (
+          <>
+            <Link
+              className="button button--secondary"
+              href="/app/social/collaborators"
+            >
+              Voltar à lista
+            </Link>
+            <button
+              className="button button--secondary"
+              onClick={openCollaboratorEditor}
+              type="button"
+            >
+              <EditIcon />
+              <span>Editar colaborador</span>
+            </button>
+            <button
+              className="button"
+              onClick={() => window.print()}
+              type="button"
+            >
+              <ExportIcon />
+              <span>Imprimir ficha</span>
             </button>
           </>
         ) : null}

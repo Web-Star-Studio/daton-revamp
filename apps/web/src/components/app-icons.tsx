@@ -69,6 +69,19 @@ export function MaterialIcon({
           <path d="M15.7 17.7c.5-1.3 1.7-2 3.5-2" />
         </Svg>
       );
+    case "apartment":
+      return (
+        <Svg {...props}>
+          <path d="M4.5 19.5h15" />
+          <path d="M6.5 19.5v-11h11v11" />
+          <path d="M9 11.5h2" />
+          <path d="M13 11.5h2" />
+          <path d="M9 14.5h2" />
+          <path d="M13 14.5h2" />
+          <path d="M10.5 19.5v-2.8h3v2.8" />
+          <path d="M8 8.5V5.5h8v3" />
+        </Svg>
+      );
     case "notifications":
       return (
         <Svg {...props}>
@@ -115,11 +128,34 @@ export function MaterialIcon({
           <path d="M5 18.5h14" />
         </Svg>
       );
+    case "upload":
+      return (
+        <Svg {...props}>
+          <path d="M12 19.5v-10" />
+          <path d="m8.5 13 3.5-3.5 3.5 3.5" />
+          <path d="M5 5.5h14" />
+        </Svg>
+      );
     case "edit":
       return (
         <Svg {...props}>
           <path d="m4.5 19.5 3.6-.8L18 8.8 15.2 6 5.3 15.9l-.8 3.6Z" />
           <path d="m13.8 7.3 2.9 2.9" />
+        </Svg>
+      );
+    case "search":
+      return (
+        <Svg {...props}>
+          <circle cx="11" cy="11" r="5.5" />
+          <path d="m15.2 15.2 4.3 4.3" />
+        </Svg>
+      );
+    case "filter_list":
+      return (
+        <Svg {...props}>
+          <path d="M5 7h14" />
+          <path d="M8 12h8" />
+          <path d="M11 17h2" />
         </Svg>
       );
     case "content_copy":
@@ -199,6 +235,12 @@ export function MaterialIcon({
           <path d="M12 5.5 19 18.5H5z" />
           <path d="M12 10v3.7" />
           <circle cx="12" cy="16.2" r="0.9" fill="currentColor" stroke="none" />
+        </Svg>
+      );
+    case "star_outline":
+      return (
+        <Svg {...props}>
+          <path d="m12 4.8 2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5-3.6-3.5 5-.7Z" />
         </Svg>
       );
     case "payments":

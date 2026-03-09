@@ -291,6 +291,7 @@ const serializeBranch = async (db: AppDbExecutor, branchId: string) => {
 export const branchRoutes = new Hono<AppBindings>();
 
 branchRoutes.use("/branches/*", requireRoles("owner", "admin"));
+branchRoutes.use("/members*", requireRoles("owner", "admin"));
 
 branchRoutes.get("/branches", async (c) => {
   const snapshot = c.get("sessionSnapshot");
@@ -329,6 +330,32 @@ branchRoutes.get("/branches", async (c) => {
   );
 
   return c.json(managers);
+});
+
+branchRoutes.get("/members", async (c) => {
+  const snapshot = c.get("sessionSnapshot");
+
+  if (!snapshot?.organization) {
+    throw new HTTPException(401, { message: "Autenticação obrigatória." });
+  }
+
+  const db = c.get("db");
+  const records = await db
+    .select({
+      id: organizationMembers.id,
+      userId: organizationMembers.userId,
+      fullName: organizationMembers.fullName,
+      email: organizationMembers.email,
+      status: organizationMembers.status,
+    })
+    .from(organizationMembers)
+    .where(eq(organizationMembers.organizationId, snapshot.organization.id));
+
+  const collator = new Intl.Collator("pt-BR");
+
+  return c.json(
+    [...records].sort((left, right) => collator.compare(left.fullName, right.fullName)),
+  );
 });
 
 branchRoutes.post("/branches", async (c) => {

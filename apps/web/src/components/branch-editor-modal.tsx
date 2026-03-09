@@ -4,7 +4,10 @@ import { useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { type ServerBranch } from "@/lib/server-api";
+import {
+  type ServerBranch,
+  type ServerOrganizationMember,
+} from "@/lib/server-api";
 
 import { BranchForm } from "./branch-form";
 import { CloseIcon } from "./app-icons";
@@ -15,12 +18,14 @@ export const BRANCH_EDITOR_MODAL_VISIBILITY_EVENT =
 type BranchEditorModalProps = {
   branch: ServerBranch;
   branches: ServerBranch[];
+  members: ServerOrganizationMember[];
   open: boolean;
 };
 
 export function BranchEditorModal({
   branch,
   branches,
+  members,
   open,
 }: BranchEditorModalProps) {
   const pathname = usePathname();
@@ -101,7 +106,12 @@ export function BranchEditorModal({
           </button>
         </header>
         <div className="app-modal__body app-modal__body--editor">
-          <BranchForm branch={branch} branches={branches} onSuccess={close} />
+          <BranchForm
+            branch={branch}
+            branches={branches}
+            members={members}
+            onSuccess={close}
+          />
         </div>
       </div>
     </div>,

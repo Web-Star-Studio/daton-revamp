@@ -4,6 +4,7 @@ import { BranchEditorModal } from "@/components/branch-editor-modal";
 import {
   getServerBranch,
   getServerBranches,
+  getServerOrganizationMembers,
   type ServerBranch,
 } from "@/lib/server-api";
 
@@ -24,9 +25,10 @@ export default async function BranchDetailPage({
     params,
     searchParams,
   ]);
-  const [branch, branches] = await Promise.all([
+  const [branch, branches, members] = await Promise.all([
     getServerBranch(branchId).catch(() => null),
     getServerBranches(),
+    getServerOrganizationMembers(),
   ]);
 
   if (!branch) {
@@ -40,13 +42,9 @@ export default async function BranchDetailPage({
 
   return (
     <>
-      <section className="workspace-section">
+      <section className="workspace-section branch-detail-page">
         <header className="workspace-intro">
           <h2>{branch.name}</h2>
-          <p className="workspace-copy">
-            Gerencie o cadastro central da unidade e acompanhe os pontos
-            operacionais que já estão disponíveis neste payload.
-          </p>
         </header>
 
         <div className="detail-grid">
@@ -106,6 +104,7 @@ export default async function BranchDetailPage({
       <BranchEditorModal
         branch={branch}
         branches={branches}
+        members={members}
         open={isEditOpen}
       />
     </>

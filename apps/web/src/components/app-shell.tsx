@@ -19,6 +19,8 @@ import { AppHeader } from "./app-header";
 import { AppNavigation } from "./app-navigation";
 import { BRANCH_EDITOR_MODAL_VISIBILITY_EVENT } from "./branch-editor-modal";
 import { COLLABORATOR_MODAL_VISIBILITY_EVENT } from "./collaborators-events";
+import { DEPARTMENT_MODAL_VISIBILITY_EVENT } from "./organization-departments-events";
+import { UNIT_MODAL_VISIBILITY_EVENT } from "./organization-units-events";
 import { SignOutButton } from "./sign-out-button";
 
 type AppShellProps = PropsWithChildren<{
@@ -49,6 +51,8 @@ export function AppShell({ children, modal, session }: AppShellProps) {
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
   const [isBranchEditorOpen, setIsBranchEditorOpen] = useState(false);
   const [isCollaboratorModalOpen, setIsCollaboratorModalOpen] = useState(false);
+  const [isDepartmentModalOpen, setIsDepartmentModalOpen] = useState(false);
+  const [isUnitModalOpen, setIsUnitModalOpen] = useState(false);
   const memberName = formatShortName(
     session.member?.fullName ?? session.user.email,
   );
@@ -57,6 +61,8 @@ export function AppShell({ children, modal, session }: AppShellProps) {
     isAiChatOpen ||
     isBranchEditorOpen ||
     isCollaboratorModalOpen ||
+    isDepartmentModalOpen ||
+    isUnitModalOpen ||
     Boolean(activeModalSegment);
 
   useEffect(() => {
@@ -76,6 +82,14 @@ export function AppShell({ children, modal, session }: AppShellProps) {
       const modalEvent = event as CustomEvent<{ open?: boolean }>;
       setIsCollaboratorModalOpen(Boolean(modalEvent.detail?.open));
     };
+    const handleDepartmentModalVisibility = (event: Event) => {
+      const modalEvent = event as CustomEvent<{ open?: boolean }>;
+      setIsDepartmentModalOpen(Boolean(modalEvent.detail?.open));
+    };
+    const handleUnitModalVisibility = (event: Event) => {
+      const modalEvent = event as CustomEvent<{ open?: boolean }>;
+      setIsUnitModalOpen(Boolean(modalEvent.detail?.open));
+    };
 
     window.addEventListener(
       BRANCH_EDITOR_MODAL_VISIBILITY_EVENT,
@@ -84,6 +98,14 @@ export function AppShell({ children, modal, session }: AppShellProps) {
     window.addEventListener(
       COLLABORATOR_MODAL_VISIBILITY_EVENT,
       handleCollaboratorModalVisibility as EventListener,
+    );
+    window.addEventListener(
+      DEPARTMENT_MODAL_VISIBILITY_EVENT,
+      handleDepartmentModalVisibility as EventListener,
+    );
+    window.addEventListener(
+      UNIT_MODAL_VISIBILITY_EVENT,
+      handleUnitModalVisibility as EventListener,
     );
 
     return () => {
@@ -94,6 +116,14 @@ export function AppShell({ children, modal, session }: AppShellProps) {
       window.removeEventListener(
         COLLABORATOR_MODAL_VISIBILITY_EVENT,
         handleCollaboratorModalVisibility as EventListener,
+      );
+      window.removeEventListener(
+        DEPARTMENT_MODAL_VISIBILITY_EVENT,
+        handleDepartmentModalVisibility as EventListener,
+      );
+      window.removeEventListener(
+        UNIT_MODAL_VISIBILITY_EVENT,
+        handleUnitModalVisibility as EventListener,
       );
     };
   }, []);

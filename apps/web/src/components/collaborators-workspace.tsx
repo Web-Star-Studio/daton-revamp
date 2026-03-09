@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   startTransition,
   type ChangeEvent,
@@ -11,126 +13,183 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
+import {
+  createInitialRoles,
+  getDisplayValue,
+  collaboratorStatuses,
+  createInitialCollaborators,
+  exportColumns,
+  formatDateLabel,
+  getCollaboratorStatusClass,
+  getRoleAssociationKey,
+  mergeCollaborators,
+  mergeRoles,
+  readStoredCollaborators,
+  readStoredRoles,
+  roleExportColumns,
+  toCollaboratorFromSpreadsheetRow,
+  toRoleFromSpreadsheetRow,
+  writeStoredCollaborators,
+  writeStoredRoles,
+  type CollaboratorRecord,
+  type CollaboratorRoleRecord,
+  type CollaboratorStatus,
+} from "@/lib/collaborators";
 import type { ServerBranch } from "@/lib/server-api";
 
+import { CollaboratorEditorModal } from "./collaborator-editor-modal";
+import { CollaboratorRoleEditorModal } from "./collaborator-role-editor-modal";
 import {
   COLLABORATOR_MODAL_VISIBILITY_EVENT,
   OPEN_COLLABORATOR_CREATION_EVENT,
   OPEN_COLLABORATOR_EXPORT_EVENT,
   OPEN_COLLABORATOR_IMPORT_EVENT,
+  OPEN_ROLE_CREATION_EVENT,
+  OPEN_ROLE_EDITION_EVENT,
+  OPEN_ROLE_EXPORT_EVENT,
+  OPEN_ROLE_IMPORT_EVENT,
 } from "./collaborators-events";
-
-type CollaboratorStatus = "Ativo" | "Desligado" | "Em admissão";
-
-type CollaboratorRecord = {
-  additionalLocation: string;
-  birthDate: string;
-  branchId: string;
-  branchName: string;
-  cpf: string;
-  department: string;
-  educationLevel: string;
-  email: string;
-  employmentType: string;
-  fullName: string;
-  gender: string;
-  hireDate: string;
-  id: string;
-  notes: string;
-  phone: string;
-  role: string;
-  status: CollaboratorStatus;
-  terminationDate: string;
-};
 
 type CollaboratorsWorkspaceProps = {
   branches: ServerBranch[];
 };
 
-const educationLevels = [
-  "Ensino Fundamental",
-  "Ensino Médio",
-  "Ensino Técnico",
-  "Ensino Superior Completo",
-  "Pós-graduação",
-  "Mestrado",
-  "Doutorado",
-] as const;
-
-const genderOptions = [
-  "Feminino",
-  "Masculino",
-  "Não binário",
-  "Prefiro não informar",
-] as const;
-const employmentTypes = [
-  "CLT",
-  "PJ",
-  "Temporário",
-  "Estágio",
-  "Aprendiz",
-] as const;
-const collaboratorStatuses = ["Ativo", "Em admissão", "Desligado"] as const;
-
-const exportColumns: Array<{ key: keyof CollaboratorRecord; label: string }> = [
-  { key: "cpf", label: "CPF" },
-  { key: "fullName", label: "Nome Completo" },
-  { key: "email", label: "E-mail" },
-  { key: "phone", label: "Telefone" },
-  { key: "department", label: "Departamento" },
-  { key: "role", label: "Cargo" },
-  { key: "hireDate", label: "Data de Contratação" },
-  { key: "terminationDate", label: "Data de Demissão" },
-  { key: "birthDate", label: "Data de Nascimento" },
-  { key: "educationLevel", label: "Escolaridade" },
-  { key: "gender", label: "Gênero" },
-  { key: "employmentType", label: "Tipo de Contrato" },
-  { key: "status", label: "Status" },
-  { key: "branchName", label: "Filial" },
-  { key: "additionalLocation", label: "Localização Adicional" },
-  { key: "notes", label: "Observações" },
-];
-
 export function CollaboratorsWorkspace({
   branches,
 }: CollaboratorsWorkspaceProps) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [collaborators, setCollaborators] = useState<CollaboratorRecord[]>(() =>
     createInitialCollaborators(branches),
   );
+  const [roles, setRoles] = useState<CollaboratorRoleRecord[]>(() =>
+    createInitialRoles(createInitialCollaborators(branches)),
+  );
   const [searchValue, setSearchValue] = useState("");
+  const [roleSearchValue, setRoleSearchValue] = useState("");
   const deferredSearchValue = useDeferredValue(searchValue);
+  const deferredRoleSearchValue = useDeferredValue(roleSearchValue);
   const [statusFilter, setStatusFilter] = useState<
     CollaboratorStatus | "Todos"
   >("Todos");
   const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isCollaboratorExportOpen, setIsCollaboratorExportOpen] =
+    useState(false);
+  const [isRoleEditorOpen, setIsRoleEditorOpen] = useState(false);
+  const [isRoleExportOpen, setIsRoleExportOpen] = useState(false);
   const [editorKey, setEditorKey] = useState("collaborator-editor-initial");
+  const [roleEditorKey, setRoleEditorKey] = useState("role-editor-initial");
+  const [editingRole, setEditingRole] = useState<CollaboratorRoleRecord | null>(
+    null,
+  );
   const [importFeedback, setImportFeedback] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [roleFeedback, setRoleFeedback] = useState<string | null>(null);
+  const [hasHydratedCollaborators, setHasHydratedCollaborators] =
+    useState(false);
+  const collaboratorFileInputRef = useRef<HTMLInputElement>(null);
+  const roleFileInputRef = useRef<HTMLInputElement>(null);
+  const activeTab = searchParams.get("tab") === "roles" ? "roles" : "overview";
+  const selectedRoleId = searchParams.get("role") ?? "";
 
   useEffect(() => {
     const openEditor = () => {
       setEditorKey(crypto.randomUUID());
       setIsEditorOpen(true);
     };
-    const openImport = () => fileInputRef.current?.click();
-    const openExport = () => setIsExportOpen(true);
+    const openImport = () => collaboratorFileInputRef.current?.click();
+    const openExport = () => setIsCollaboratorExportOpen(true);
+    const openRoleEditor = () => {
+      setEditingRole(null);
+      setRoleEditorKey(crypto.randomUUID());
+      setIsRoleEditorOpen(true);
+    };
+    const openSelectedRoleEditor = (event: Event) => {
+      const roleId = (event as CustomEvent<{ roleId?: string }>).detail?.roleId;
+
+      if (!roleId) {
+        return;
+      }
+
+      const roleToEdit = roles.find((role) => role.id === roleId);
+
+      if (!roleToEdit) {
+        return;
+      }
+
+      setEditingRole(roleToEdit);
+      setRoleEditorKey(crypto.randomUUID());
+      setIsRoleEditorOpen(true);
+    };
+    const openRoleImport = () => roleFileInputRef.current?.click();
+    const openRoleExport = () => setIsRoleExportOpen(true);
 
     window.addEventListener(OPEN_COLLABORATOR_CREATION_EVENT, openEditor);
     window.addEventListener(OPEN_COLLABORATOR_IMPORT_EVENT, openImport);
     window.addEventListener(OPEN_COLLABORATOR_EXPORT_EVENT, openExport);
+    window.addEventListener(OPEN_ROLE_CREATION_EVENT, openRoleEditor);
+    window.addEventListener(OPEN_ROLE_EDITION_EVENT, openSelectedRoleEditor);
+    window.addEventListener(OPEN_ROLE_IMPORT_EVENT, openRoleImport);
+    window.addEventListener(OPEN_ROLE_EXPORT_EVENT, openRoleExport);
 
     return () => {
       window.removeEventListener(OPEN_COLLABORATOR_CREATION_EVENT, openEditor);
       window.removeEventListener(OPEN_COLLABORATOR_IMPORT_EVENT, openImport);
       window.removeEventListener(OPEN_COLLABORATOR_EXPORT_EVENT, openExport);
+      window.removeEventListener(OPEN_ROLE_CREATION_EVENT, openRoleEditor);
+      window.removeEventListener(
+        OPEN_ROLE_EDITION_EVENT,
+        openSelectedRoleEditor,
+      );
+      window.removeEventListener(OPEN_ROLE_IMPORT_EVENT, openRoleImport);
+      window.removeEventListener(OPEN_ROLE_EXPORT_EVENT, openRoleExport);
     };
+  }, [roles]);
+
+  useEffect(() => {
+    const storedCollaborators = readStoredCollaborators();
+    const storedRoles = readStoredRoles();
+    const nextCollaborators = storedCollaborators?.length
+      ? storedCollaborators
+      : createInitialCollaborators(branches);
+
+    setCollaborators(nextCollaborators);
+
+    if (storedRoles?.length) {
+      setRoles(storedRoles);
+    } else {
+      setRoles(createInitialRoles(nextCollaborators));
+    }
+
+    setHasHydratedCollaborators(true);
   }, []);
+
+  useEffect(() => {
+    if (!hasHydratedCollaborators) {
+      return;
+    }
+
+    writeStoredCollaborators(collaborators);
+  }, [collaborators, hasHydratedCollaborators]);
+
+  useEffect(() => {
+    if (!hasHydratedCollaborators) {
+      return;
+    }
+
+    writeStoredRoles(roles);
+  }, [roles, hasHydratedCollaborators]);
 
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent(COLLABORATOR_MODAL_VISIBILITY_EVENT, {
-        detail: { open: isEditorOpen || isExportOpen },
+        detail: {
+          open:
+            isEditorOpen ||
+            isCollaboratorExportOpen ||
+            isRoleEditorOpen ||
+            isRoleExportOpen,
+        },
       }),
     );
 
@@ -141,9 +200,15 @@ export function CollaboratorsWorkspace({
         }),
       );
     };
-  }, [isEditorOpen, isExportOpen]);
+  }, [
+    isCollaboratorExportOpen,
+    isEditorOpen,
+    isRoleEditorOpen,
+    isRoleExportOpen,
+  ]);
 
   const normalizedSearch = deferredSearchValue.trim().toLowerCase();
+  const normalizedRoleSearch = deferredRoleSearchValue.trim().toLowerCase();
   const filteredCollaborators = collaborators.filter((collaborator) => {
     if (statusFilter !== "Todos" && collaborator.status !== statusFilter) {
       return false;
@@ -165,6 +230,41 @@ export function CollaboratorsWorkspace({
       .toLowerCase()
       .includes(normalizedSearch);
   });
+  const filteredRoles = roles.filter((role) => {
+    if (!normalizedRoleSearch) {
+      return true;
+    }
+
+    return [
+      role.title,
+      role.department,
+      role.educationRequirement,
+      role.employmentType,
+      role.requirements,
+      role.responsibilities,
+      role.description,
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedRoleSearch);
+  });
+  const selectedRole = useMemo(
+    () => roles.find((role) => role.id === selectedRoleId) ?? null,
+    [roles, selectedRoleId],
+  );
+  const departmentOptions = useMemo(() => {
+    const departments = new Set<string>();
+
+    roles.forEach((role) => {
+      if (role.department.trim()) {
+        departments.add(role.department.trim());
+      }
+    });
+
+    return Array.from(departments).sort((left, right) =>
+      left.localeCompare(right, "pt-BR"),
+    );
+  }, [roles]);
 
   const activeCollaborators = collaborators.filter(
     (collaborator) => collaborator.status === "Ativo",
@@ -175,7 +275,9 @@ export function CollaboratorsWorkspace({
       .filter(Boolean),
   ).size;
 
-  async function handleImportChange(event: ChangeEvent<HTMLInputElement>) {
+  async function handleCollaboratorImportChange(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
     const file = event.currentTarget.files?.[0];
 
     if (!file) {
@@ -222,9 +324,24 @@ export function CollaboratorsWorkspace({
       }
 
       startTransition(() => {
-        setCollaborators((currentCollaborators) =>
-          mergeCollaborators(currentCollaborators, importedCollaborators),
-        );
+        setCollaborators((currentCollaborators) => {
+          const nextCollaborators = mergeCollaborators(
+            currentCollaborators,
+            importedCollaborators,
+          );
+
+          writeStoredCollaborators(nextCollaborators);
+          return nextCollaborators;
+        });
+        setRoles((currentRoles) => {
+          const nextRoles = mergeRoles(
+            currentRoles,
+            createInitialRoles(importedCollaborators),
+          );
+
+          writeStoredRoles(nextRoles);
+          return nextRoles;
+        });
       });
       setImportFeedback(
         `${importedCollaborators.length} colaborador${importedCollaborators.length > 1 ? "es foram importados" : " foi importado"} com sucesso.`,
@@ -238,7 +355,7 @@ export function CollaboratorsWorkspace({
     }
   }
 
-  async function handleExport(format: "csv" | "xlsx") {
+  async function handleCollaboratorExport(format: "csv" | "xlsx") {
     const rows = collaborators.map((collaborator) =>
       Object.fromEntries(
         exportColumns.map((column) => [column.label, collaborator[column.key]]),
@@ -258,142 +375,413 @@ export function CollaboratorsWorkspace({
 
       triggerDownload(downloadUrl, `colaboradores-${stamp}.csv`);
       window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
-      setIsExportOpen(false);
+      setIsCollaboratorExportOpen(false);
       return;
     }
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Colaboradores");
     XLSX.writeFileXLSX(workbook, `colaboradores-${stamp}.xlsx`);
-    setIsExportOpen(false);
+    setIsCollaboratorExportOpen(false);
+  }
+
+  async function handleRoleImportChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const XLSX = await import("xlsx");
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+
+      if (!firstSheetName) {
+        setRoleFeedback(
+          "O arquivo selecionado não possui nenhuma aba para importar cargos.",
+        );
+        return;
+      }
+
+      const firstSheet = workbook.Sheets[firstSheetName];
+
+      if (!firstSheet) {
+        setRoleFeedback(
+          "Não foi possível ler a primeira aba do arquivo selecionado.",
+        );
+        return;
+      }
+
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(
+        firstSheet,
+        { defval: "" },
+      );
+      const importedRoles = rows
+        .map((row) => toRoleFromSpreadsheetRow(row))
+        .filter((role): role is CollaboratorRoleRecord => role !== null);
+
+      if (importedRoles.length === 0) {
+        setRoleFeedback(
+          "Nenhum cargo válido foi encontrado no arquivo selecionado.",
+        );
+        return;
+      }
+
+      startTransition(() => {
+        setRoles((currentRoles) => {
+          const nextRoles = mergeRoles(currentRoles, importedRoles);
+
+          writeStoredRoles(nextRoles);
+          return nextRoles;
+        });
+      });
+      setRoleFeedback(
+        `${importedRoles.length} cargo${importedRoles.length > 1 ? "s foram importados" : " foi importado"} com sucesso.`,
+      );
+    } catch {
+      setRoleFeedback(
+        "Não foi possível importar o arquivo. Verifique se ele está em CSV ou XLSX.",
+      );
+    } finally {
+      event.currentTarget.value = "";
+    }
+  }
+
+  async function handleRoleExport(format: "csv" | "xlsx") {
+    const rows = roles.map((role) =>
+      Object.fromEntries(
+        roleExportColumns.map((column) => [column.label, role[column.key]]),
+      ),
+    );
+
+    const XLSX = await import("xlsx");
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    if (format === "csv") {
+      const csvContent = `\uFEFF${XLSX.utils.sheet_to_csv(worksheet)}`;
+      const csvBlob = new Blob([csvContent], {
+        type: "text/csv;charset=utf-8;",
+      });
+      const downloadUrl = URL.createObjectURL(csvBlob);
+
+      triggerDownload(downloadUrl, `cargos-${stamp}.csv`);
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 0);
+      setIsRoleExportOpen(false);
+      return;
+    }
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Cargos");
+    XLSX.writeFileXLSX(workbook, `cargos-${stamp}.xlsx`);
+    setIsRoleExportOpen(false);
   }
 
   function handleCreateCollaborator(collaborator: CollaboratorRecord) {
     setImportFeedback(null);
     startTransition(() => {
-      setCollaborators((currentCollaborators) => [
-        collaborator,
-        ...currentCollaborators,
-      ]);
+      setCollaborators((currentCollaborators) => {
+        const nextCollaborators = [collaborator, ...currentCollaborators];
+
+        writeStoredCollaborators(nextCollaborators);
+        return nextCollaborators;
+      });
+      setRoles((currentRoles) => {
+        const nextRoles = mergeRoles(
+          currentRoles,
+          createInitialRoles([collaborator]),
+        );
+
+        writeStoredRoles(nextRoles);
+        return nextRoles;
+      });
     });
     setIsEditorOpen(false);
   }
 
+  function handleSaveRole(role: CollaboratorRoleRecord) {
+    setRoleFeedback(null);
+    startTransition(() => {
+      setRoles((currentRoles) => {
+        const nextRoles = mergeRoles(currentRoles, [role]);
+
+        writeStoredRoles(nextRoles);
+        return nextRoles;
+      });
+    });
+    setEditingRole(null);
+    setIsRoleEditorOpen(false);
+  }
+
+  function toggleRoleSelection(roleId: string) {
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+
+    nextSearchParams.set("tab", "roles");
+
+    if (selectedRoleId === roleId) {
+      nextSearchParams.delete("role");
+    } else {
+      nextSearchParams.set("role", roleId);
+    }
+
+    const nextQuery = nextSearchParams.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, {
+      scroll: false,
+    });
+  }
+
+  const tabs = [
+    {
+      key: "overview",
+      label: "Visão geral",
+      href: `${pathname}`,
+    },
+    {
+      key: "roles",
+      label: "Cargos",
+      href: `${pathname}?tab=roles`,
+    },
+  ] as const;
+
   return (
     <section className="workspace-section workspace-section--fill collaborators-page">
-      <header className="workspace-intro">
-        <h2>Gestão de Colaboradores</h2>
-        <p className="workspace-copy">
-          Centralize admissões, cadastro e acompanhamento operacional dos
-          colaboradores em uma base pronta para importação e exportação.
-        </p>
-      </header>
+      <nav aria-label="Seções de colaboradores" className="workspace-tabs">
+        {tabs.map((tab) => (
+          <Link
+            aria-current={activeTab === tab.key ? "page" : undefined}
+            className={`workspace-tabs__link${activeTab === tab.key ? " workspace-tabs__link--active" : ""}`}
+            href={tab.href}
+            key={tab.key}
+          >
+            {tab.label}
+          </Link>
+        ))}
+      </nav>
 
       <article className="detail-grid collaborators-page__grid">
         <div className="content-panel content-panel--fill">
-          <div className="section-heading collaborators-panel__header">
-            <div className="collaborators-panel__filters">
-              <label className="collaborators-field collaborators-field--search">
-                <span>Buscar</span>
-                <input
-                  onChange={(event) =>
-                    setSearchValue(event.currentTarget.value)
-                  }
-                  placeholder="Nome, CPF, filial, cargo ou e-mail"
-                  type="search"
-                  value={searchValue}
-                />
-              </label>
-              <label className="collaborators-field collaborators-field--compact">
-                <span>Status</span>
-                <select
-                  onChange={(event) =>
-                    setStatusFilter(
-                      event.currentTarget.value as CollaboratorStatus | "Todos",
-                    )
-                  }
-                  value={statusFilter}
-                >
-                  <option value="Todos">Todos</option>
-                  {collaboratorStatuses.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </div>
-
-          {importFeedback ? (
-            <p className="collaborators-panel__feedback">{importFeedback}</p>
-          ) : null}
-
-          {filteredCollaborators.length > 0 ? (
-            <div className="collaborators-table">
-              <div className="collaborators-table__head">
-                <span>Colaborador</span>
-                <span>Cargo / Departamento</span>
-                <span>Filial</span>
-                <span>Status</span>
+          {activeTab === "overview" ? (
+            <>
+              <div className="section-heading collaborators-panel__header">
+                <div className="collaborators-panel__filters">
+                  <label className="collaborators-field collaborators-field--search">
+                    <span>Buscar</span>
+                    <input
+                      onChange={(event) =>
+                        setSearchValue(event.currentTarget.value)
+                      }
+                      placeholder="Nome, CPF, filial, cargo ou e-mail"
+                      type="search"
+                      value={searchValue}
+                    />
+                  </label>
+                  <label className="collaborators-field collaborators-field--compact">
+                    <span>Status</span>
+                    <select
+                      onChange={(event) =>
+                        setStatusFilter(
+                          event.currentTarget.value as
+                            | CollaboratorStatus
+                            | "Todos",
+                        )
+                      }
+                      value={statusFilter}
+                    >
+                      <option value="Todos">Todos</option>
+                      {collaboratorStatuses.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               </div>
-              <ul className="collaborators-table__body">
-                {filteredCollaborators.map((collaborator) => (
-                  <li className="collaborators-row" key={collaborator.id}>
-                    <div className="collaborators-row__primary">
-                      <strong>{collaborator.fullName}</strong>
-                      <span>{collaborator.cpf}</span>
-                      <span>
-                        {collaborator.email || "Sem e-mail informado"}
-                      </span>
-                    </div>
-                    <div className="collaborators-row__secondary">
-                      <strong>
-                        {collaborator.role || "Cargo não informado"}
-                      </strong>
-                      <span>
-                        {collaborator.department ||
-                          "Departamento não informado"}
-                      </span>
-                      <span>{collaborator.employmentType}</span>
-                    </div>
-                    <div className="collaborators-row__branch">
-                      <strong>{collaborator.branchName || "Sem filial"}</strong>
-                      <span>
-                        {collaborator.additionalLocation ||
-                          "Sem localização adicional"}
-                      </span>
-                      <span>
-                        Admissão: {formatDateLabel(collaborator.hireDate)}
-                      </span>
-                    </div>
-                    <div className="collaborators-row__status">
-                      <span
-                        className={getCollaboratorStatusClass(
-                          collaborator.status,
-                        )}
-                      >
-                        {collaborator.status}
-                      </span>
-                      <span>{collaborator.phone || "Sem telefone"}</span>
-                      <span>
-                        {collaborator.terminationDate
-                          ? `Desligamento: ${formatDateLabel(collaborator.terminationDate)}`
-                          : `Nascimento: ${formatDateLabel(collaborator.birthDate)}`}
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
+
+              {importFeedback ? (
+                <p className="collaborators-panel__feedback">
+                  {importFeedback}
+                </p>
+              ) : null}
+
+              {filteredCollaborators.length > 0 ? (
+                <div className="collaborators-table">
+                  <div className="collaborators-table__head">
+                    <span>Colaborador</span>
+                    <span>Cargo / Departamento</span>
+                    <span>Filial</span>
+                    <span>Status</span>
+                  </div>
+                  <ul className="collaborators-table__body">
+                    {filteredCollaborators.map((collaborator) => (
+                      <li key={collaborator.id}>
+                        <Link
+                          className="collaborators-row collaborators-row--interactive"
+                          href={`/app/social/collaborators/${collaborator.id}`}
+                        >
+                          <div className="collaborators-row__primary">
+                            <strong>{collaborator.fullName}</strong>
+                            <span>{collaborator.cpf}</span>
+                            <span>
+                              {collaborator.email || "Sem e-mail informado"}
+                            </span>
+                          </div>
+                          <div className="collaborators-row__secondary">
+                            <strong>
+                              {collaborator.role || "Cargo não informado"}
+                            </strong>
+                            <span>
+                              {collaborator.department ||
+                                "Departamento não informado"}
+                            </span>
+                            <span>{collaborator.employmentType}</span>
+                          </div>
+                          <div className="collaborators-row__branch">
+                            <strong>
+                              {collaborator.branchName || "Sem filial"}
+                            </strong>
+                            <span>
+                              {collaborator.additionalLocation ||
+                                "Sem localização adicional"}
+                            </span>
+                            <span>
+                              Admissão: {formatDateLabel(collaborator.hireDate)}
+                            </span>
+                          </div>
+                          <div className="collaborators-row__status">
+                            <span
+                              className={getCollaboratorStatusClass(
+                                collaborator.status,
+                              )}
+                            >
+                              {collaborator.status}
+                            </span>
+                            <span>{collaborator.phone || "Sem telefone"}</span>
+                            <span>
+                              {collaborator.terminationDate
+                                ? `Desligamento: ${formatDateLabel(collaborator.terminationDate)}`
+                                : `Nascimento: ${formatDateLabel(collaborator.birthDate)}`}
+                            </span>
+                          </div>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="collaborators-empty-state">
+                  <strong>Nenhum colaborador encontrado</strong>
+                  <p>
+                    Ajuste a busca, mude o filtro ou importe uma planilha para
+                    popular a base.
+                  </p>
+                </div>
+              )}
+            </>
           ) : (
-            <div className="collaborators-empty-state">
-              <strong>Nenhum colaborador encontrado</strong>
-              <p>
-                Ajuste a busca, mude o filtro ou importe uma planilha para
-                popular a base.
-              </p>
-            </div>
+            <>
+              <div className="section-heading collaborators-panel__header">
+                <div className="collaborators-panel__filters collaborators-panel__filters--single">
+                  <label className="collaborators-field collaborators-field--search">
+                    <span>Buscar</span>
+                    <input
+                      onChange={(event) =>
+                        setRoleSearchValue(event.currentTarget.value)
+                      }
+                      placeholder="Cargo, departamento, contrato ou descrição"
+                      type="search"
+                      value={roleSearchValue}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {roleFeedback ? (
+                <p className="collaborators-panel__feedback">{roleFeedback}</p>
+              ) : null}
+
+              {filteredRoles.length > 0 ? (
+                <div className="collaborators-table collaborators-table--roles">
+                  <div className="collaborators-table__head collaborators-table__head--roles">
+                    <span>Cargo</span>
+                    <span>Departamento / Contrato</span>
+                    <span>Colaboradores associados</span>
+                  </div>
+                  <ul className="collaborators-table__body">
+                    {filteredRoles.map((role) => {
+                      const relatedCollaborators = collaborators.filter(
+                        (collaborator) =>
+                          getRoleAssociationKey(
+                            collaborator.role,
+                            collaborator.department,
+                          ) ===
+                          getRoleAssociationKey(role.title, role.department),
+                      );
+
+                      return (
+                        <li key={role.id}>
+                          <button
+                            className={`collaborators-row collaborators-row--interactive collaborators-row--roles${
+                              selectedRole?.id === role.id
+                                ? " collaborators-row--selected"
+                                : ""
+                            }`}
+                            onClick={() => toggleRoleSelection(role.id)}
+                            type="button"
+                          >
+                            <div className="collaborators-row__primary">
+                              <strong>{role.title}</strong>
+                              <span>{getDisplayValue(role.description)}</span>
+                              <span>
+                                Escolaridade:{" "}
+                                {getDisplayValue(role.educationRequirement)}
+                              </span>
+                            </div>
+                            <div className="collaborators-row__secondary">
+                              <strong>
+                                {getDisplayValue(role.department)}
+                              </strong>
+                              <span>
+                                {getDisplayValue(role.employmentType)}
+                              </span>
+                              <span>{getDisplayValue(role.requirements)}</span>
+                            </div>
+                            <div className="collaborators-row__branch">
+                              <strong>
+                                {relatedCollaborators.length} associado
+                                {relatedCollaborators.length === 1 ? "" : "s"}
+                              </strong>
+                              <span>
+                                {relatedCollaborators.length > 0
+                                  ? relatedCollaborators
+                                      .slice(0, 3)
+                                      .map(
+                                        (collaborator) => collaborator.fullName,
+                                      )
+                                      .join(", ")
+                                  : "Nenhum colaborador associado"}
+                              </span>
+                              <span>
+                                {getDisplayValue(role.responsibilities)}
+                              </span>
+                            </div>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : (
+                <div className="collaborators-empty-state">
+                  <strong>Nenhum cargo encontrado</strong>
+                  <p>
+                    Adicione cargos manualmente ou importe uma planilha para
+                    estruturar a base de referência da equipe.
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </div>
       </article>
@@ -401,8 +789,15 @@ export function CollaboratorsWorkspace({
       <input
         accept=".csv,.xlsx,.xls"
         className="sr-only"
-        onChange={handleImportChange}
-        ref={fileInputRef}
+        onChange={handleCollaboratorImportChange}
+        ref={collaboratorFileInputRef}
+        type="file"
+      />
+      <input
+        accept=".csv,.xlsx,.xls"
+        className="sr-only"
+        onChange={handleRoleImportChange}
+        ref={roleFileInputRef}
         type="file"
       />
 
@@ -412,328 +807,45 @@ export function CollaboratorsWorkspace({
         isOpen={isEditorOpen}
         onClose={() => setIsEditorOpen(false)}
         onSubmit={handleCreateCollaborator}
+        roles={roles}
       />
-      <ExportCollaboratorsModal
-        collaboratorCount={collaborators.length}
-        isOpen={isExportOpen}
-        onClose={() => setIsExportOpen(false)}
-        onExport={handleExport}
+      <CollaboratorRoleEditorModal
+        departmentOptions={departmentOptions}
+        editorKey={roleEditorKey}
+        initialRole={editingRole}
+        isOpen={isRoleEditorOpen}
+        onClose={() => {
+          setEditingRole(null);
+          setIsRoleEditorOpen(false);
+        }}
+        onSubmit={handleSaveRole}
+      />
+      <ExportDataModal
+        isOpen={isCollaboratorExportOpen}
+        onClose={() => setIsCollaboratorExportOpen(false)}
+        onExport={handleCollaboratorExport}
+        title="Escolha o formato da base de colaboradores"
+      />
+      <ExportDataModal
+        isOpen={isRoleExportOpen}
+        onClose={() => setIsRoleExportOpen(false)}
+        onExport={handleRoleExport}
+        title="Escolha o formato da base de cargos"
       />
     </section>
   );
 }
 
-function CollaboratorEditorModal({
-  branches,
-  editorKey,
-  isOpen,
-  onClose,
-  onSubmit,
-}: {
-  branches: ServerBranch[];
-  editorKey: string;
-  isOpen: boolean;
-  onClose: () => void;
-  onSubmit: (collaborator: CollaboratorRecord) => void;
-}) {
-  const portalTarget = usePortalTarget();
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    const previousOverflow = document.body.style.overflow;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    };
-
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen, onClose]);
-
-  if (!isOpen || !portalTarget) {
-    return null;
-  }
-
-  return createPortal(
-    <div
-      aria-hidden="true"
-      className="app-modal app-modal--overlay"
-      onClick={onClose}
-      role="presentation"
-    >
-      <div
-        aria-labelledby="collaborator-editor-title"
-        aria-modal="true"
-        className="app-modal__dialog app-modal__dialog--collaborators"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-      >
-        <header className="app-modal__header">
-          <div className="stack stack--xs">
-            <h2 id="collaborator-editor-title">Novo funcionário</h2>
-            <p className="app-modal__description">
-              Preencha os dados centrais do colaborador sem incluir as seções de
-              experiências e educação complementar.
-            </p>
-          </div>
-          <button
-            aria-label="Fechar cadastro de colaborador"
-            className="icon-button"
-            onClick={onClose}
-            type="button"
-          >
-            <CloseIcon />
-          </button>
-        </header>
-
-        <form
-          className="collaborator-form"
-          key={editorKey}
-          onSubmit={(event) => {
-            event.preventDefault();
-            const formData = new FormData(event.currentTarget);
-            onSubmit(buildCollaboratorFromFormData(formData, branches));
-          }}
-        >
-          <div className="app-modal__body collaborator-form__grid form-grid">
-            <div className="field">
-              <label htmlFor="collaborator-cpf">CPF</label>
-              <input
-                defaultValue=""
-                id="collaborator-cpf"
-                inputMode="numeric"
-                name="cpf"
-                onInput={(event) => {
-                  event.currentTarget.value = formatCpf(
-                    event.currentTarget.value,
-                  );
-                }}
-                placeholder="000.000.000-00"
-                required
-                type="text"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="collaborator-full-name">Nome Completo</label>
-              <input
-                defaultValue=""
-                id="collaborator-full-name"
-                name="fullName"
-                placeholder="Nome completo do funcionário"
-                required
-                type="text"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="collaborator-email">E-mail</label>
-              <input
-                defaultValue=""
-                id="collaborator-email"
-                name="email"
-                placeholder="email@empresa.com"
-                type="email"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="collaborator-phone">Telefone</label>
-              <input
-                defaultValue=""
-                id="collaborator-phone"
-                inputMode="tel"
-                name="phone"
-                onInput={(event) => {
-                  event.currentTarget.value = formatPhone(
-                    event.currentTarget.value,
-                  );
-                }}
-                placeholder="(11) 99999-9999"
-                type="text"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="collaborator-department">Departamento</label>
-              <input
-                defaultValue=""
-                id="collaborator-department"
-                name="department"
-                type="text"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="collaborator-role">Cargo</label>
-              <input
-                defaultValue=""
-                id="collaborator-role"
-                name="role"
-                type="text"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="collaborator-hire-date">
-                Data de Contratação
-              </label>
-              <input
-                defaultValue={todayIsoDate()}
-                id="collaborator-hire-date"
-                name="hireDate"
-                required
-                type="date"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="collaborator-termination-date">
-                Data de Demissão
-              </label>
-              <input
-                defaultValue=""
-                id="collaborator-termination-date"
-                name="terminationDate"
-                type="date"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="collaborator-birth-date">
-                Data de Nascimento
-              </label>
-              <input
-                defaultValue=""
-                id="collaborator-birth-date"
-                name="birthDate"
-                type="date"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="collaborator-education-level">Escolaridade</label>
-              <select
-                defaultValue=""
-                id="collaborator-education-level"
-                name="educationLevel"
-              >
-                <option value="">Selecionar escolaridade</option>
-                {educationLevels.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="collaborator-gender">Gênero</label>
-              <select defaultValue="" id="collaborator-gender" name="gender">
-                <option value="">Selecionar gênero</option>
-                {genderOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="collaborator-employment-type">
-                Tipo de Contrato
-              </label>
-              <select
-                defaultValue="CLT"
-                id="collaborator-employment-type"
-                name="employmentType"
-              >
-                {employmentTypes.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="collaborator-status">Status</label>
-              <select
-                defaultValue="Ativo"
-                id="collaborator-status"
-                name="status"
-              >
-                {collaboratorStatuses.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="collaborator-branch">Filial</label>
-              <select
-                defaultValue={branches[0]?.id ?? ""}
-                id="collaborator-branch"
-                name="branchId"
-              >
-                <option value="">Selecione uma filial</option>
-                {branches.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="collaborator-additional-location">
-                Localização Adicional
-              </label>
-              <input
-                defaultValue=""
-                id="collaborator-additional-location"
-                name="additionalLocation"
-                placeholder="Ex: Sala 201, Andar 3"
-                type="text"
-              />
-            </div>
-            <div className="field field--wide">
-              <label htmlFor="collaborator-notes">Informações Adicionais</label>
-              <textarea
-                defaultValue=""
-                id="collaborator-notes"
-                name="notes"
-                placeholder="Observações ou informações adicionais sobre o funcionário"
-                rows={4}
-              />
-            </div>
-          </div>
-          <footer className="collaborator-form__footer">
-            <button
-              className="button button--secondary"
-              onClick={onClose}
-              type="button"
-            >
-              Cancelar
-            </button>
-            <button className="button" type="submit">
-              Salvar colaborador
-            </button>
-          </footer>
-        </form>
-      </div>
-    </div>,
-    portalTarget,
-  );
-}
-
-function ExportCollaboratorsModal({
-  collaboratorCount,
+function ExportDataModal({
   isOpen,
   onClose,
   onExport,
+  title,
 }: {
-  collaboratorCount: number;
   isOpen: boolean;
   onClose: () => void;
   onExport: (format: "csv" | "xlsx") => Promise<void>;
+  title: string;
 }) {
   const portalTarget = usePortalTarget();
 
@@ -775,9 +887,7 @@ function ExportCollaboratorsModal({
       >
         <header className="app-modal__header">
           <div className="stack stack--xs">
-            <h2 id="collaborator-export-title">
-              Escolha o formato da planilha
-            </h2>
+            <h2 id="collaborator-export-title">{title}</h2>
           </div>
           <button
             aria-label="Fechar exportação"
@@ -810,307 +920,6 @@ function ExportCollaboratorsModal({
     </div>,
     portalTarget,
   );
-}
-
-function buildCollaboratorFromFormData(
-  formData: FormData,
-  branches: ServerBranch[],
-): CollaboratorRecord {
-  const branchId = String(formData.get("branchId") ?? "");
-  const branchName =
-    branches.find((branch) => branch.id === branchId)?.name ?? "";
-
-  return {
-    id: crypto.randomUUID(),
-    cpf: formatCpf(String(formData.get("cpf") ?? "")),
-    fullName: String(formData.get("fullName") ?? "").trim(),
-    email: String(formData.get("email") ?? "").trim(),
-    phone: formatPhone(String(formData.get("phone") ?? "")),
-    department: String(formData.get("department") ?? "").trim(),
-    role: String(formData.get("role") ?? "").trim(),
-    hireDate: String(formData.get("hireDate") ?? ""),
-    terminationDate: String(formData.get("terminationDate") ?? ""),
-    birthDate: String(formData.get("birthDate") ?? ""),
-    educationLevel: String(formData.get("educationLevel") ?? ""),
-    gender: String(formData.get("gender") ?? ""),
-    employmentType: String(formData.get("employmentType") ?? "CLT"),
-    status: (String(formData.get("status") ?? "Ativo") ||
-      "Ativo") as CollaboratorStatus,
-    branchId,
-    branchName,
-    additionalLocation: String(formData.get("additionalLocation") ?? "").trim(),
-    notes: String(formData.get("notes") ?? "").trim(),
-  };
-}
-
-function createInitialCollaborators(
-  branches: ServerBranch[],
-): CollaboratorRecord[] {
-  return [
-    {
-      id: "seed-ana-ribeiro",
-      cpf: "298.145.870-14",
-      fullName: "Ana Paula Ribeiro",
-      email: "ana.ribeiro@daton.local",
-      phone: "(11) 99876-1024",
-      department: "Operações",
-      role: "Analista de Processos",
-      hireDate: "2024-04-01",
-      terminationDate: "",
-      birthDate: "1992-06-18",
-      educationLevel: "Ensino Superior Completo",
-      gender: "Feminino",
-      employmentType: "CLT",
-      status: "Ativo",
-      branchId: branches[0]?.id ?? "",
-      branchName: branches[0]?.name ?? "Matriz",
-      additionalLocation: "Sala 203, 2º andar",
-      notes:
-        "Responsável pelo onboarding documental e apoio às rotinas sociais.",
-    },
-    {
-      id: "seed-marcos-costa",
-      cpf: "417.532.980-33",
-      fullName: "Marcos Costa Lima",
-      email: "marcos.costa@daton.local",
-      phone: "(21) 98741-2201",
-      department: "Recursos Humanos",
-      role: "Coordenador de RH",
-      hireDate: "2023-09-14",
-      terminationDate: "",
-      birthDate: "1988-11-02",
-      educationLevel: "Pós-graduação",
-      gender: "Masculino",
-      employmentType: "CLT",
-      status: "Ativo",
-      branchId: branches[1]?.id ?? branches[0]?.id ?? "",
-      branchName: branches[1]?.name ?? branches[0]?.name ?? "Base central",
-      additionalLocation: "Andar administrativo",
-      notes: "Ponto focal para admissões, contratos e movimentações internas.",
-    },
-  ];
-}
-
-function mergeCollaborators(
-  currentCollaborators: CollaboratorRecord[],
-  importedCollaborators: CollaboratorRecord[],
-) {
-  const collaboratorsByCpf = new Map(
-    currentCollaborators.map((collaborator) => [
-      normalizeCpf(collaborator.cpf),
-      collaborator,
-    ]),
-  );
-
-  importedCollaborators.forEach((collaborator) => {
-    const collaboratorCpf = normalizeCpf(collaborator.cpf);
-    const currentCollaborator = collaboratorsByCpf.get(collaboratorCpf);
-
-    collaboratorsByCpf.set(
-      collaboratorCpf,
-      currentCollaborator
-        ? {
-            ...currentCollaborator,
-            ...collaborator,
-            id: currentCollaborator.id,
-          }
-        : collaborator,
-    );
-  });
-
-  return Array.from(collaboratorsByCpf.values()).sort((left, right) => {
-    if (!left.hireDate && !right.hireDate) {
-      return left.fullName.localeCompare(right.fullName);
-    }
-
-    if (!left.hireDate) {
-      return 1;
-    }
-
-    if (!right.hireDate) {
-      return -1;
-    }
-
-    return right.hireDate.localeCompare(left.hireDate);
-  });
-}
-
-function toCollaboratorFromSpreadsheetRow(
-  row: Record<string, unknown>,
-  branches: ServerBranch[],
-): CollaboratorRecord | null {
-  const cpf = formatCpf(readSpreadsheetValue(row, ["CPF", "cpf"]));
-  const fullName = readSpreadsheetValue(row, [
-    "Nome Completo",
-    "Nome Completo*",
-    "fullName",
-    "nomeCompleto",
-  ]);
-
-  if (!cpf || !fullName) {
-    return null;
-  }
-
-  const branchNameFromRow = readSpreadsheetValue(row, [
-    "Filial",
-    "branchName",
-    "filial",
-  ]);
-  const branchId = readSpreadsheetValue(row, ["branchId", "Filial ID"]);
-  const matchedBranch =
-    branches.find((branch) => branch.id === branchId) ??
-    branches.find(
-      (branch) => branch.name.toLowerCase() === branchNameFromRow.toLowerCase(),
-    );
-
-  const statusValue =
-    readSpreadsheetValue(row, ["Status", "status"]) || "Ativo";
-  const collaboratorStatus = collaboratorStatuses.includes(
-    statusValue as CollaboratorStatus,
-  )
-    ? (statusValue as CollaboratorStatus)
-    : "Ativo";
-
-  return {
-    id: crypto.randomUUID(),
-    cpf,
-    fullName,
-    email: readSpreadsheetValue(row, ["E-mail", "Email", "email"]),
-    phone: formatPhone(readSpreadsheetValue(row, ["Telefone", "phone"])),
-    department: readSpreadsheetValue(row, ["Departamento", "department"]),
-    role: readSpreadsheetValue(row, ["Cargo", "role"]),
-    hireDate: normalizeSpreadsheetDate(
-      readSpreadsheetValue(row, ["Data de Contratação", "hireDate"]),
-    ),
-    terminationDate: normalizeSpreadsheetDate(
-      readSpreadsheetValue(row, ["Data de Demissão", "terminationDate"]),
-    ),
-    birthDate: normalizeSpreadsheetDate(
-      readSpreadsheetValue(row, ["Data de Nascimento", "birthDate"]),
-    ),
-    educationLevel: readSpreadsheetValue(row, [
-      "Escolaridade",
-      "educationLevel",
-    ]),
-    gender: readSpreadsheetValue(row, ["Gênero", "Genero", "gender"]),
-    employmentType:
-      readSpreadsheetValue(row, ["Tipo de Contrato", "employmentType"]) ||
-      "CLT",
-    status: collaboratorStatus,
-    branchId: matchedBranch?.id ?? "",
-    branchName: matchedBranch?.name ?? branchNameFromRow,
-    additionalLocation: readSpreadsheetValue(row, [
-      "Localização Adicional",
-      "additionalLocation",
-    ]),
-    notes: readSpreadsheetValue(row, [
-      "Observações",
-      "Informações Adicionais",
-      "notes",
-    ]),
-  };
-}
-
-function readSpreadsheetValue(row: Record<string, unknown>, keys: string[]) {
-  for (const key of keys) {
-    const value = row[key];
-
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-
-    if (typeof value === "number" || typeof value === "boolean") {
-      return String(value);
-    }
-  }
-
-  return "";
-}
-
-function normalizeSpreadsheetDate(value: string) {
-  if (!value) {
-    return "";
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return value;
-  }
-
-  const [day, month, year] = value.split("/");
-  if (day && month && year && year.length === 4) {
-    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-  }
-
-  return "";
-}
-
-function formatDateLabel(value: string) {
-  if (!value) {
-    return "Não informado";
-  }
-
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(new Date(`${value}T00:00:00`));
-}
-
-function normalizeCpf(value: string) {
-  return value.replace(/\D/g, "").slice(0, 11);
-}
-
-function formatCpf(value: string) {
-  const digits = normalizeCpf(value);
-
-  if (digits.length <= 3) {
-    return digits;
-  }
-
-  if (digits.length <= 6) {
-    return `${digits.slice(0, 3)}.${digits.slice(3)}`;
-  }
-
-  if (digits.length <= 9) {
-    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
-  }
-
-  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
-}
-
-function formatPhone(value: string) {
-  const digits = value.replace(/\D/g, "").slice(0, 11);
-
-  if (digits.length <= 2) {
-    return digits ? `(${digits}` : "";
-  }
-
-  if (digits.length <= 7) {
-    return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
-  }
-
-  if (digits.length <= 10) {
-    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
-  }
-
-  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
-}
-
-function getCollaboratorStatusClass(status: CollaboratorStatus) {
-  switch (status) {
-    case "Ativo":
-      return "badge badge--success";
-    case "Em admissão":
-      return "badge badge--warning";
-    case "Desligado":
-      return "badge badge--neutral";
-    default:
-      return "badge badge--neutral";
-  }
-}
-
-function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function triggerDownload(href: string, fileName: string) {

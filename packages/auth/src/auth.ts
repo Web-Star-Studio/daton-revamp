@@ -208,6 +208,9 @@ export const unsealDatonSession = async (
     const { payload } = await jwtDecrypt(
       value,
       await getSessionEncryptionKey(env.DATON_SESSION_SECRET),
+      {
+        contentEncryptionAlgorithms: ["A256GCM"],
+      },
     );
 
     if (

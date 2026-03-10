@@ -31,6 +31,8 @@ const workOsAuthErrorCodes = new Set([
   "password_auth_disabled",
   "sso_required",
 ]);
+const workOsAuthMessagePattern =
+  /\b(invalid_grant|invalid_credentials|incorrect email or password|incorrect password|password authentication is disabled|sso_required|mfa_enrollment)\b/i;
 
 const sessionContextSchema = z.object({
   membershipCount: z.number().int().nonnegative(),
@@ -128,14 +130,7 @@ export const isWorkOsAuthenticationFailure = (error: unknown) => {
     return false;
   }
 
-  // `isWorkOsAuthenticationFailure` only falls back to message matching when
-  // `getErrorName`/`getErrorCode` found nothing and `workOsAuthErrorNames` /
-  // `workOsAuthErrorCodes` could not classify an otherwise unstructured error.
-  return (
-    error instanceof Error &&
-    (error.message.toLowerCase().includes("invalid") ||
-      error.message.toLowerCase().includes("password"))
-  );
+  return error instanceof Error && workOsAuthMessagePattern.test(error.message);
 };
 
 const toAuthSessionError = (error: unknown, fallbackMessage: string) => {

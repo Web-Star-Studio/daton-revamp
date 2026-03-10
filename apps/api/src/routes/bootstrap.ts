@@ -22,6 +22,62 @@ import type { AppDbExecutor } from "../lib/session";
 import type { AppBindings } from "../types";
 
 export const bootstrapRoutes = new Hono<AppBindings>();
+
+const transientErrorCodes = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENOTFOUND",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+]);
+
+const classifyBootstrapError = (error: unknown): { message: string; status: 400 | 500 | 502 | 503 } => {
+  const status =
+    error && typeof error === "object" && "status" in error && typeof error.status === "number"
+      ? error.status
+      : null;
+  const code =
+    error && typeof error === "object" && "code" in error && typeof error.code === "string"
+      ? error.code
+      : null;
+  const name =
+    error && typeof error === "object" && "name" in error && typeof error.name === "string"
+      ? error.name
+      : null;
+
+  if (
+    status === 400 ||
+    status === 409 ||
+    name === "BadRequestException" ||
+    name === "ConflictException" ||
+    code === "23505"
+  ) {
+    return {
+      message: "Não foi possível criar o ambiente inicial com os dados informados.",
+      status: 400,
+    };
+  }
+
+  if (status !== null && status >= 500) {
+    return {
+      message: "Não foi possível criar o ambiente inicial agora.",
+      status: 502,
+    };
+  }
+
+  if ((code && transientErrorCodes.has(code)) || name === "TypeError") {
+    return {
+      message: "Os serviços necessários para criar o ambiente estão indisponíveis no momento.",
+      status: 503,
+    };
+  }
+
+  return {
+    message: "Erro interno ao criar o ambiente inicial.",
+    status: 500,
+  };
+};
+
 const parseBootstrapInput = async (c: any) => {
   const env = parseServerEnv(c.env);
 
@@ -91,8 +147,14 @@ bootstrapRoutes.post("/bootstrap/organization", async (c) => {
   } catch (error) {
     Sentry.captureException(error);
 
-    throw new HTTPException(400, {
-      message: "Não foi possível criar o ambiente inicial com os dados informados.",
+    if (error instanceof HTTPException) {
+      throw error;
+    }
+
+    const classified = classifyBootstrapError(error);
+
+    throw new HTTPException(classified.status, {
+      message: classified.message,
     });
   }
 

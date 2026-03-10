@@ -3,7 +3,7 @@
 import Link from "next/link";
 
 type ExceptionStateProps = {
-  errorMessage?: string;
+  referenceId?: string;
   homeHref?: string;
   homeLabel?: string;
   retryLabel: string;
@@ -14,24 +14,8 @@ type ExceptionStateProps = {
 const fallbackMessage =
   "Ocorreu uma inconsistência interna. Tente recarregar a visualização para continuar.";
 
-const buildSupportReference = (errorMessage?: string) => {
-  const normalized = errorMessage?.trim();
-
-  if (!normalized) {
-    return null;
-  }
-
-  let hash = 0;
-
-  for (const character of normalized) {
-    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
-  }
-
-  return `ERR-${hash.toString(36).toUpperCase().padStart(6, "0").slice(0, 8)}`;
-};
-
 export function ExceptionState({
-  errorMessage,
+  referenceId,
   homeHref,
   homeLabel = "Ir para o início",
   retryLabel,
@@ -39,7 +23,6 @@ export function ExceptionState({
   onRetry,
 }: ExceptionStateProps) {
   const normalizedHomeHref = homeHref?.trim();
-  const supportReference = buildSupportReference(errorMessage);
   const hasHomeAction = Boolean(normalizedHomeHref);
   const safeHomeHref = normalizedHomeHref ?? "/";
 
@@ -57,8 +40,8 @@ export function ExceptionState({
             <div className="exception-panel__detail">
               <span>Como seguir</span>
               <p>{fallbackMessage}</p>
-              {supportReference ? (
-                <p>Referência de suporte: {supportReference}</p>
+              {referenceId ? (
+                <p>Referência de suporte: {referenceId}</p>
               ) : null}
             </div>
           </div>

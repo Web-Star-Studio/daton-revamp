@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import type { CreatePositionInput, UpdatePositionInput } from "@daton/contracts";
@@ -32,13 +32,13 @@ export function PositionEditorModal({
   const isEditing = Boolean(initialPosition);
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     if (isSaving) {
       return;
     }
 
     onClose();
-  };
+  }, [isSaving, onClose]);
 
   useEffect(() => {
     window.dispatchEvent(

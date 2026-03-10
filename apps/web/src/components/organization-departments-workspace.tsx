@@ -2,6 +2,7 @@
 
 import {
   startTransition,
+  useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -82,24 +83,6 @@ export function OrganizationDepartmentsWorkspace({
     };
   }, [isEditorOpen]);
 
-  useEffect(() => {
-    const handleOpenCreate = () => {
-      openCreateModal();
-    };
-
-    const handleExport = () => {
-      void exportDepartments();
-    };
-
-    window.addEventListener(OPEN_DEPARTMENT_CREATION_EVENT, handleOpenCreate);
-    window.addEventListener(OPEN_DEPARTMENT_EXPORT_EVENT, handleExport);
-
-    return () => {
-      window.removeEventListener(OPEN_DEPARTMENT_CREATION_EVENT, handleOpenCreate);
-      window.removeEventListener(OPEN_DEPARTMENT_EXPORT_EVENT, handleExport);
-    };
-  }, []);
-
   const filteredDepartments = useMemo(() => {
     const normalizedSearch = deferredSearchValue.trim().toLocaleLowerCase("pt-BR");
 
@@ -143,7 +126,7 @@ export function OrganizationDepartmentsWorkspace({
     }
   }, [filteredDepartments, selectedDepartment]);
 
-  async function exportDepartments() {
+  const exportDepartments = useCallback(async () => {
     const rows = departmentsRef.current.map((department) => ({
       Departamento: department.name,
       Código: department.code,
@@ -164,13 +147,31 @@ export function OrganizationDepartmentsWorkspace({
 
     XLSX.utils.book_append_sheet(workbook, worksheet, "Departamentos");
     XLSX.writeFileXLSX(workbook, `departamentos-${stamp}.xlsx`);
-  }
+  }, []);
 
-  function openCreateModal() {
+  const openCreateModal = useCallback(() => {
     setEditingDepartment(null);
     setError(null);
     setIsEditorOpen(true);
-  }
+  }, []);
+
+  const handleOpenCreate = useCallback(() => {
+    openCreateModal();
+  }, [openCreateModal]);
+
+  const handleExport = useCallback(() => {
+    void exportDepartments();
+  }, [exportDepartments]);
+
+  useEffect(() => {
+    window.addEventListener(OPEN_DEPARTMENT_CREATION_EVENT, handleOpenCreate);
+    window.addEventListener(OPEN_DEPARTMENT_EXPORT_EVENT, handleExport);
+
+    return () => {
+      window.removeEventListener(OPEN_DEPARTMENT_CREATION_EVENT, handleOpenCreate);
+      window.removeEventListener(OPEN_DEPARTMENT_EXPORT_EVENT, handleExport);
+    };
+  }, [handleExport, handleOpenCreate]);
 
   function openEditModal(department: ServerDepartment) {
     setEditingDepartment(department);

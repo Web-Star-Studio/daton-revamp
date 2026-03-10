@@ -433,7 +433,7 @@ function filterOrganizationUnits({
       branch.code,
       branch.legalIdentifier,
       formatCnpj(branch.legalIdentifier),
-      branch.isHeadquarters ? "headquarters matriz" : "filial",
+      branch.isHeadquarters ? "headquarters matriz branch" : "branch filial",
       formatBranchStatus(branch.status),
     ]
       .join(" ")

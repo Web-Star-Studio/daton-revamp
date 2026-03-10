@@ -82,7 +82,7 @@ export const loadLocalDevelopmentEnv = (
   const rootEnv = parseEnvFile(readFileSync(repoRootEnvPath, "utf8"));
 
   for (const [key, value] of Object.entries(rootEnv)) {
-    if (!resolvedEnvironment[key]) {
+    if (resolvedEnvironment[key] === undefined) {
       resolvedEnvironment[key] = value;
     }
   }

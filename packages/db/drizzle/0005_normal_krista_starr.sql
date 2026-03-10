@@ -45,7 +45,6 @@ CREATE TABLE "positions" (
 --> statement-breakpoint
 ALTER TABLE "departments" ADD COLUMN "description" text;--> statement-breakpoint
 ALTER TABLE "departments" ADD COLUMN "parent_department_id" uuid;--> statement-breakpoint
-ALTER TABLE "departments" ADD COLUMN "manager_employee_id" uuid;--> statement-breakpoint
 ALTER TABLE "departments" ADD COLUMN "budget" numeric(12, 2);--> statement-breakpoint
 ALTER TABLE "departments" ADD COLUMN "cost_center" text;--> statement-breakpoint
 ALTER TABLE "employees" ADD CONSTRAINT "employees_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint

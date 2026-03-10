@@ -324,6 +324,18 @@ export const createPositionBaseSchema = () =>
     reportsToPositionId: z.uuid().optional().nullable(),
     requiredEducationLevel: z.string().trim().max(120).optional().or(z.literal("")),
     requiredExperienceYears: z.number().int().nonnegative().optional().nullable(),
+  }).superRefine((value, ctx) => {
+    if (
+      value.salaryRangeMin != null &&
+      value.salaryRangeMax != null &&
+      value.salaryRangeMin > value.salaryRangeMax
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A faixa salarial mínima não pode ser maior que a máxima.",
+        path: ["salaryRangeMin"],
+      });
+    }
   });
 
 export const positionBaseSchema = createPositionBaseSchema();

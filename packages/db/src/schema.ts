@@ -172,7 +172,12 @@ export const departments = pgTable(
         onDelete: "set null",
       },
     ),
-    managerEmployeeId: uuid("manager_employee_id"),
+    managerEmployeeId: uuid("manager_employee_id").references(
+      (): AnyPgColumn => employees.id,
+      {
+        onDelete: "set null",
+      },
+    ),
     managerMemberId: uuid("manager_member_id").references(() => organizationMembers.id, {
       onDelete: "set null",
     }),

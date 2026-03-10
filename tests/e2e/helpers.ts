@@ -196,11 +196,17 @@ export const setOrganizationOnboardingStatus = async (input: {
   const sql = postgres(databaseUrl, { prepare: false });
 
   try {
-    await sql`
+    const result = await sql`
       update organizations
       set onboarding_status = ${input.status}
       where legal_identifier = ${input.legalIdentifier}
     `;
+
+    if (result.count === 0) {
+      throw new Error(
+        `Organização não encontrada para atualizar onboarding: ${input.legalIdentifier}`,
+      );
+    }
   } finally {
     await sql.end();
   }

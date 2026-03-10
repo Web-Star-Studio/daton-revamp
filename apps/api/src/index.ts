@@ -3,11 +3,10 @@ import { cors } from "hono/cors";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 
-import { createDatonAuth, expandLocalOriginAliases } from "@daton/auth";
+import { createWorkOsClient, expandLocalOriginAliases } from "@daton/auth";
 import { createNodeDbServices } from "@daton/db";
 
 import { parseServerEnv } from "./env";
-import { getSessionSnapshot } from "./lib/session";
 import { createApiSentryOptions, setRequestSentryContext } from "./lib/sentry";
 import { withSession } from "./middleware/auth";
 import { bootstrapRoutes } from "./routes/bootstrap";
@@ -20,13 +19,12 @@ const app = new Hono<AppBindings>();
 const readServerEnv = (bindings: AppBindings["Bindings"]) =>
   parseServerEnv({
     DATABASE_URL: bindings.DATABASE_URL,
-    BETTER_AUTH_SECRET: bindings.BETTER_AUTH_SECRET,
-    BETTER_AUTH_URL: bindings.BETTER_AUTH_URL,
-    BETTER_AUTH_PASSWORD_HASH_ITERATIONS: bindings.BETTER_AUTH_PASSWORD_HASH_ITERATIONS,
+    WORKOS_API_KEY: bindings.WORKOS_API_KEY,
+    WORKOS_CLIENT_ID: bindings.WORKOS_CLIENT_ID,
+    WORKOS_AUTHKIT_DOMAIN: bindings.WORKOS_AUTHKIT_DOMAIN,
     NEXT_PUBLIC_APP_URL: bindings.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_API_URL: bindings.NEXT_PUBLIC_API_URL,
     CORS_ORIGIN: bindings.CORS_ORIGIN,
-    COOKIE_DOMAIN: bindings.COOKIE_DOMAIN,
     SENTRY_DSN: bindings.SENTRY_DSN,
     SENTRY_AUTH_TOKEN: bindings.SENTRY_AUTH_TOKEN,
     SENTRY_ORG: bindings.SENTRY_ORG,
@@ -48,13 +46,13 @@ const getServices = (bindings: AppBindings["Bindings"]) => {
   }
 
   const { client, db } = createNodeDbServices(databaseUrl);
-  const auth = createDatonAuth(db, env.auth);
+  const workos = createWorkOsClient(env.workos);
 
   return {
-    auth,
     client,
     db,
     env,
+    workos,
   };
 };
 
@@ -82,7 +80,8 @@ app.use("/api/*", async (c, next) => {
   const services = getServices(c.env);
 
   c.set("db", services.db);
-  c.set("auth", services.auth);
+  c.set("workos", services.workos);
+  c.set("workosEnv", services.env.workos);
 
   try {
     await next();
@@ -116,11 +115,6 @@ app.get("/api/v1/session", async (c) => {
   }
 
   return c.json(snapshot);
-});
-
-app.on(["GET", "POST"], "/api/auth/*", async (c) => {
-  const response = await c.get("auth").handler(c.req.raw);
-  return response;
 });
 
 app.route("/api/v1", bootstrapRoutes);

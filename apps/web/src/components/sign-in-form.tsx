@@ -3,26 +3,7 @@
 import Link from "next/link";
 import { startTransition, useState } from "react";
 
-import { authClient } from "@/lib/auth-client";
-
-const isInvalidCredentialsError = (value: unknown) => {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const status = "status" in value ? value.status : undefined;
-  const code = "code" in value ? value.code : undefined;
-  const message =
-    "message" in value && typeof value.message === "string" ? value.message : "";
-
-  return (
-    status === 400 ||
-    status === 401 ||
-    code === "INVALID_EMAIL_OR_PASSWORD" ||
-    message.toLowerCase().includes("invalid email or password") ||
-    message.toLowerCase().includes("invalid password")
-  );
-};
+import { signIn } from "@/lib/api";
 
 export function SignInForm() {
   const [isPending, setIsPending] = useState(false);
@@ -42,26 +23,17 @@ export function SignInForm() {
 
         startTransition(async () => {
           try {
-            const result = await authClient.signIn.email({
+            const result = await signIn({
               email,
               password,
             });
-
-            if (result?.error) {
-              if (isInvalidCredentialsError(result.error)) {
-                throw result.error;
-              }
-
-              throw result.error;
-            }
-
-            window.location.assign("/app");
+            window.location.assign(result.redirectTo);
           } catch (signInError) {
-            if (isInvalidCredentialsError(signInError)) {
-              setError("E-mail ou senha inválidos.");
-            } else {
-              setError("Não foi possível entrar no ambiente agora.");
-            }
+            setError(
+              signInError instanceof Error
+                ? signInError.message
+                : "Não foi possível entrar no ambiente agora.",
+            );
           } finally {
             setIsPending(false);
           }

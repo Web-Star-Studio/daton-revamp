@@ -8,6 +8,7 @@ import {
   createCreateEmployeeSchema,
   createCreatePositionSchema,
   organizationSummarySchema,
+  sessionResponseSchema,
   createUpdateBranchSchema,
   createUpdateDepartmentSchema,
   createUpdateEmployeeSchema,
@@ -25,6 +26,7 @@ import {
   type DepartmentSummary,
   type EmployeeSummary,
   type PositionSummary,
+  type SessionResponse,
   type UpdateOrganizationInput,
   type UpdateBranchInput,
   type UpdateDepartmentInput,
@@ -82,9 +84,29 @@ export async function bootstrapOrganization(input: BootstrapOrganizationInput) {
     allowFictional: allowFictionalCnpjInClient(),
   }).parse(input);
 
-  return clientApiFetch("/api/v1/bootstrap/organization", {
+  return clientApiFetch<{ redirectTo: string }>("/api/auth/sign-up", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function signIn(input: { email: string; password: string }) {
+  return clientApiFetch<{ redirectTo: string }>("/api/auth/sign-in", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function signOut() {
+  return clientApiFetch<{ redirectTo: string }>("/api/auth/sign-out", {
+    method: "POST",
+  });
+}
+
+export async function getBrowserSession() {
+  return clientApiFetch<SessionResponse>("/api/auth/session", {
+    method: "GET",
+    schema: sessionResponseSchema,
   });
 }
 

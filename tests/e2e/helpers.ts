@@ -1,4 +1,5 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
+import { WorkOS } from "@workos-inc/node";
 import { formatCnpj } from "@daton/contracts";
 import postgres from "postgres";
 
@@ -122,32 +123,35 @@ export const completeOrganizationOnboarding = async (
   await page.waitForURL("**/app/settings/organization");
 };
 
+const createTestWorkOsClient = () => {
+  const apiKey = process.env.WORKOS_API_KEY ?? "sk_test_test-api-key";
+  const clientId = process.env.WORKOS_CLIENT_ID ?? "client_test_123456789";
+
+  return new WorkOS({
+    apiKey,
+    clientId,
+    fetchFn: fetch,
+  });
+};
+
 export const createDetachedAuthUser = async (
-  request: APIRequestContext,
+  _request: APIRequestContext,
   suffix: string,
 ) => {
   const email = `manager.${suffix}@example.com`;
-  const response = await request.post(
-    "http://127.0.0.1:8787/api/auth/sign-up/email",
-    {
-      data: {
-        name: `Gestor ${suffix}`,
-        email,
-        password: `Manager-${suffix}-secure`,
-      },
-    },
-  );
+  const password = `Manager-${suffix}-secure`;
+  const user = await createTestWorkOsClient().userManagement.createUser({
+    email,
+    firstName: "Gestor",
+    lastName: suffix,
+    password,
+  });
 
-  expect(response.ok()).toBeTruthy();
-  const payload = (await response.json()) as {
-    user: {
-      id: string;
-      email: string;
-      name: string;
-    };
+  return {
+    email: user.email,
+    id: user.id,
+    name: [user.firstName, user.lastName].filter(Boolean).join(" "),
   };
-
-  return payload.user;
 };
 
 export const createTestCnpj = (seed: string) => createValidCnpj(seed);

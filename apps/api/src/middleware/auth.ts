@@ -2,16 +2,19 @@ import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import type { Role } from "@daton/contracts";
 
-import { getSessionSnapshot } from "../lib/session";
+import { resolveSessionContext } from "../lib/session";
 import { setSessionSentryContext } from "../lib/sentry";
 import type { AppBindings } from "../types";
 
 export const withSession = createMiddleware<AppBindings>(async (c, next) => {
-  const snapshot = await getSessionSnapshot(
+  const sessionContext = await resolveSessionContext(
     c.get("db"),
-    c.get("auth"),
-    c.req.raw.headers,
+    c.get("workosEnv"),
+    c.req.raw.headers.get("authorization"),
   );
+  const snapshot = sessionContext?.snapshot ?? null;
+
+  c.set("sessionContext", sessionContext);
   c.set("sessionSnapshot", snapshot);
   setSessionSentryContext(snapshot);
   await next();

@@ -32,7 +32,7 @@ test("bootstrap, branch management, and auth flows work end to end", async ({ pa
       observedRequestOrigins.branchCreation.push(url.origin);
     }
 
-    if (url.pathname === "/api/auth/sign-in/email") {
+    if (url.pathname === "/api/auth/sign-in") {
       observedRequestOrigins.signIn.push(url.origin);
     }
   });
@@ -152,9 +152,6 @@ test("detached authenticated users can bootstrap an organization", async ({ page
   await page.getByLabel("Razão social").fill(legalName);
   await page.getByLabel("Nome fantasia").fill(tradeName);
   await page.getByLabel("CNPJ", { exact: true }).fill(legalIdentifier);
-  await page.getByLabel("Nome completo do administrador").fill(`Gestor ${suffix}`);
-  await page.getByLabel("E-mail do administrador").fill(user.email);
-  await page.getByLabel("Senha").fill(`Manager-${suffix}-secure`);
   await page.getByLabel(/declaro que li, entendi e concordo/i).check();
   await page.getByRole("button", { name: "Criar ambiente Daton" }).click();
 

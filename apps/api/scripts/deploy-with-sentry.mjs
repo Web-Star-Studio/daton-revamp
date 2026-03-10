@@ -76,7 +76,8 @@ if (gitRelease && !process.env.SENTRY_RELEASE) {
   process.env.SENTRY_RELEASE = gitRelease;
 }
 
-requireEnv("BETTER_AUTH_URL", "deploy:api");
+requireEnv("WORKOS_API_KEY", "deploy:api");
+requireEnv("WORKOS_CLIENT_ID", "deploy:api");
 requireEnv("NEXT_PUBLIC_APP_URL", "deploy:api");
 requireEnv("NEXT_PUBLIC_API_URL", "deploy:api");
 requireEnv("CORS_ORIGIN", "deploy:api");

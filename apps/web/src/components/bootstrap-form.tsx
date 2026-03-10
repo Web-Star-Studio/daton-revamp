@@ -4,13 +4,18 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 
-import { formatCnpj } from "@daton/contracts";
+import { formatCnpj, type SessionResponse } from "@daton/contracts";
 import { bootstrapOrganization } from "@/lib/api";
 
-export function BootstrapForm() {
+type BootstrapFormProps = {
+  session?: SessionResponse | null;
+};
+
+export function BootstrapForm({ session }: BootstrapFormProps) {
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isAuthenticated = Boolean(session?.user && !session.organization);
 
   return (
     <form
@@ -33,8 +38,8 @@ export function BootstrapForm() {
 
         startTransition(async () => {
           try {
-            await bootstrapOrganization(payload);
-            router.replace("/onboarding/organization");
+            const result = await bootstrapOrganization(payload);
+            router.replace(result.redirectTo);
             router.refresh();
           } catch (bootstrapError) {
             setError(
@@ -72,16 +77,34 @@ export function BootstrapForm() {
       </div>
       <div className="field">
         <label htmlFor="adminFullName">Nome completo do administrador</label>
-        <input autoComplete="name" id="adminFullName" name="adminFullName" required type="text" />
+        <input
+          autoComplete="name"
+          defaultValue={session?.user.name ?? ""}
+          id="adminFullName"
+          name="adminFullName"
+          readOnly={isAuthenticated}
+          required
+          type="text"
+        />
       </div>
       <div className="field">
         <label htmlFor="adminEmail">E-mail do administrador</label>
-        <input autoComplete="email" id="adminEmail" name="adminEmail" required type="email" />
+        <input
+          autoComplete="email"
+          defaultValue={session?.user.email ?? ""}
+          id="adminEmail"
+          name="adminEmail"
+          readOnly={isAuthenticated}
+          required
+          type="email"
+        />
       </div>
-      <div className="field">
-        <label htmlFor="password">Senha</label>
-        <input autoComplete="new-password" id="password" name="password" required type="password" />
-      </div>
+      {!isAuthenticated ? (
+        <div className="field">
+          <label htmlFor="password">Senha</label>
+          <input autoComplete="new-password" id="password" name="password" required type="password" />
+        </div>
+      ) : null}
       <label className="checkbox">
         <input id="terms" name="terms" required type="checkbox" />
         <span>

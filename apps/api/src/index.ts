@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 
 import { createDatonAuth, expandLocalOriginAliases } from "@daton/auth";
-import { createNodeDb } from "@daton/db";
+import { createNodeDb, type DatonDb } from "@daton/db";
 
 import { parseServerEnv } from "./env";
 import { getSessionSnapshot } from "./lib/session";
@@ -16,12 +16,20 @@ import { organizationRoutes } from "./routes/organization";
 import type { AppBindings } from "./types";
 
 const app = new Hono<AppBindings>();
+type CachedServices = {
+  cacheKey: string;
+  auth: ReturnType<typeof createDatonAuth>;
+  db: DatonDb;
+};
+
+let cachedServices: CachedServices | null = null;
 
 const readServerEnv = (bindings: AppBindings["Bindings"]) =>
   parseServerEnv({
     DATABASE_URL: bindings.DATABASE_URL,
     BETTER_AUTH_SECRET: bindings.BETTER_AUTH_SECRET,
     BETTER_AUTH_URL: bindings.BETTER_AUTH_URL,
+    BETTER_AUTH_PASSWORD_HASH_ITERATIONS: bindings.BETTER_AUTH_PASSWORD_HASH_ITERATIONS,
     NEXT_PUBLIC_APP_URL: bindings.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_API_URL: bindings.NEXT_PUBLIC_API_URL,
     CORS_ORIGIN: bindings.CORS_ORIGIN,
@@ -35,6 +43,42 @@ const readServerEnv = (bindings: AppBindings["Bindings"]) =>
     SENTRY_TRACES_SAMPLE_RATE: bindings.SENTRY_TRACES_SAMPLE_RATE,
     ALLOW_FICTIONAL_CNPJ: bindings.ALLOW_FICTIONAL_CNPJ,
   });
+
+const getServices = (bindings: AppBindings["Bindings"]) => {
+  const env = readServerEnv(bindings);
+  const databaseUrl = bindings.HYPERDRIVE?.connectionString ?? env.DATABASE_URL;
+
+  if (!databaseUrl) {
+    throw new Error(
+      "DATABASE_URL ou binding HYPERDRIVE é obrigatório para iniciar a API.",
+    );
+  }
+
+  const cacheKey = JSON.stringify({
+    databaseUrl,
+    authUrl: env.BETTER_AUTH_URL,
+    appUrl: env.NEXT_PUBLIC_APP_URL,
+    apiUrl: env.NEXT_PUBLIC_API_URL,
+    corsOrigin: env.CORS_ORIGIN,
+    cookieDomain: env.COOKIE_DOMAIN ?? "",
+    passwordHashIterations: env.auth.BETTER_AUTH_PASSWORD_HASH_ITERATIONS ?? "",
+  });
+
+  if (!cachedServices || cachedServices.cacheKey !== cacheKey) {
+    const db = createNodeDb(databaseUrl);
+
+    cachedServices = {
+      cacheKey,
+      auth: createDatonAuth(db, env.auth),
+      db,
+    };
+  }
+
+  return {
+    env,
+    ...cachedServices,
+  };
+};
 
 app.use("/api/*", async (c, next) => {
   setRequestSentryContext({
@@ -57,17 +101,10 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.use("/api/*", async (c, next) => {
-  const env = readServerEnv(c.env);
-  const databaseUrl = c.env.HYPERDRIVE?.connectionString ?? env.DATABASE_URL;
+  const services = getServices(c.env);
 
-  if (!databaseUrl) {
-    throw new Error(
-      "DATABASE_URL ou binding HYPERDRIVE é obrigatório para iniciar a API.",
-    );
-  }
-
-  c.set("db", createNodeDb(databaseUrl));
-  c.set("auth", createDatonAuth(c.get("db"), env.auth));
+  c.set("db", services.db);
+  c.set("auth", services.auth);
 
   await next();
 

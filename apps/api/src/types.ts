@@ -7,6 +7,7 @@ export type AppBindings = {
     DATABASE_URL?: string;
     BETTER_AUTH_SECRET: string;
     BETTER_AUTH_URL: string;
+    BETTER_AUTH_PASSWORD_HASH_ITERATIONS?: string;
     NEXT_PUBLIC_APP_URL: string;
     NEXT_PUBLIC_API_URL: string;
     CORS_ORIGIN: string;

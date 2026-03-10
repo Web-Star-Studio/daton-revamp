@@ -5,6 +5,7 @@ import { schema, type DatonDb } from "../../db/src/client";
 
 import type { DatonAuthEnv } from "./env";
 import { expandLocalOriginAliases } from "./origins";
+import { hashPassword, verifyPassword } from "./password";
 
 export const createDatonAuth = (db: DatonDb, env: DatonAuthEnv) =>
   betterAuth({
@@ -25,6 +26,10 @@ export const createDatonAuth = (db: DatonDb, env: DatonAuthEnv) =>
       minPasswordLength: 8,
       requireEmailVerification: false,
       autoSignIn: true,
+      password: {
+        hash: (password) => hashPassword(password, env.BETTER_AUTH_PASSWORD_HASH_ITERATIONS),
+        verify: ({ hash, password }) => verifyPassword({ hash, password }),
+      },
     },
     session: {
       expiresIn: 60 * 60 * 24 * 7,

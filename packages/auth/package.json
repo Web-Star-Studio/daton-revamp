@@ -14,6 +14,7 @@
   "dependencies": {
     "@daton/db": "workspace:*",
     "@better-auth/drizzle-adapter": "1.5.4",
+    "@noble/hashes": "^2.0.1",
     "better-auth": "1.5.4",
     "zod": "^4.1.12"
   }

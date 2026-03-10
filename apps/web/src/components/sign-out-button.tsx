@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 
-import { authClient } from "@/lib/auth-client";
+import { signOut } from "@/lib/api";
 
 export function SignOutButton() {
   const router = useRouter();
@@ -21,8 +21,8 @@ export function SignOutButton() {
 
           startTransition(async () => {
             try {
-              await authClient.signOut();
-              router.replace("/auth?mode=sign-in");
+              const result = await signOut();
+              router.replace(result.redirectTo);
               router.refresh();
             } catch (signOutError) {
               setError(signOutError instanceof Error ? signOutError.message : "Não foi possível sair.");

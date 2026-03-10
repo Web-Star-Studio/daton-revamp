@@ -1,3 +1,11 @@
+import { NextResponse } from "next/server";
+
+import {
+  clearDatonSessionCookie,
+  getDatonSessionFromCookieStore,
+  refreshDatonSessionIfNeeded,
+  setDatonSessionCookie,
+} from "./auth-session";
 import { toInternalApiUrl } from "./config";
 
 const hopByHopHeaders = new Set([
@@ -67,6 +75,8 @@ export async function proxyApiRequest(request: Request) {
   const parsedUrl = new URL(request.url);
   const upstreamUrl = toInternalApiUrl(`${parsedUrl.pathname}${parsedUrl.search}`);
   const upstreamHeaders = copyHeaders(request.headers);
+  const currentSession = await getDatonSessionFromCookieStore();
+  const refreshedSession = await refreshDatonSessionIfNeeded(currentSession, request.headers);
   const clientIp =
     request.headers.get("cf-connecting-ip") ??
     request.headers.get("x-real-ip") ??
@@ -76,6 +86,14 @@ export async function proxyApiRequest(request: Request) {
       .map((value) => value.trim())
       .find(Boolean) ??
     null;
+
+  upstreamHeaders.delete("cookie");
+
+  if (refreshedSession.payload?.accessToken) {
+    upstreamHeaders.set("authorization", `Bearer ${refreshedSession.payload.accessToken}`);
+  } else {
+    upstreamHeaders.delete("authorization");
+  }
 
   if (clientIp) {
     const existingForwardedFor = upstreamHeaders.get("x-forwarded-for");
@@ -132,8 +150,16 @@ export async function proxyApiRequest(request: Request) {
     responseHeaders.append("set-cookie", setCookie);
   }
 
-  return new Response(upstreamResponse.body, {
+  const response = new NextResponse(upstreamResponse.body, {
     status: upstreamResponse.status,
     headers: responseHeaders,
   });
+
+  if (refreshedSession.payload && refreshedSession.rotated) {
+    await setDatonSessionCookie(response, refreshedSession.payload);
+  } else if (!refreshedSession.payload && currentSession) {
+    clearDatonSessionCookie(response);
+  }
+
+  return response;
 }

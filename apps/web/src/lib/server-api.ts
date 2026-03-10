@@ -20,6 +20,7 @@ import {
   type SessionResponse,
 } from "@daton/contracts";
 
+import { getDatonSessionFromCookieStore, refreshDatonSessionIfNeeded } from "./auth-session";
 import { toInternalApiUrl } from "./config";
 
 const branchListSchema = z.array(branchSummarySchema);
@@ -66,10 +67,13 @@ export async function serverApiFetch<T>(
 ) {
   const headerStore = await headers();
   const requestHeaders = new Headers(init?.headers);
-  const cookieHeader = headerStore.get("cookie");
+  const session = await refreshDatonSessionIfNeeded(
+    await getDatonSessionFromCookieStore(),
+    headerStore,
+  );
 
-  if (cookieHeader) {
-    requestHeaders.set("cookie", cookieHeader);
+  if (session.payload?.accessToken) {
+    requestHeaders.set("authorization", `Bearer ${session.payload.accessToken}`);
   }
 
   const response = await fetch(toInternalApiUrl(path), {

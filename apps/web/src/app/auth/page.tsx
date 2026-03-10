@@ -1,6 +1,9 @@
 import Image from "next/image";
+import { redirect } from "next/navigation";
+
 import { BootstrapForm } from "@/components/bootstrap-form";
 import { SignInForm } from "@/components/sign-in-form";
+import { getServerSession } from "@/lib/server-api";
 
 type AuthPageProps = {
   searchParams: Promise<{
@@ -40,6 +43,19 @@ export default async function AuthPage({ searchParams }: AuthPageProps) {
   const resolvedSearchParams = await searchParams;
   const mode = getAuthMode(resolvedSearchParams.mode);
   const content = authModes[mode];
+  const session = await getServerSession();
+
+  if (session?.organization) {
+    redirect(
+      session.organization.onboardingStatus === "completed"
+        ? "/app"
+        : "/onboarding/organization",
+    );
+  }
+
+  if (mode === "sign-in" && session) {
+    redirect("/auth?mode=sign-up");
+  }
 
   return (
     <main className="auth-shell auth-shell--fullbleed">
@@ -63,7 +79,7 @@ export default async function AuthPage({ searchParams }: AuthPageProps) {
         <div className="auth-panel__form auth-panel__form--chrome">
           <p className="form-kicker">{content.kicker}</p>
           <p className="auth-panel__description">{content.description}</p>
-          {mode === "sign-in" ? <SignInForm /> : <BootstrapForm />}
+          {mode === "sign-in" ? <SignInForm /> : <BootstrapForm session={session} />}
         </div>
       </section>
     </main>

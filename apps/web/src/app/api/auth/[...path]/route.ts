@@ -1,10 +1,16 @@
-import { proxyApiRequest } from "@/lib/api-proxy";
+import { NextResponse } from "next/server";
 
-const proxy = (request: Request) => proxyApiRequest(request);
+const notFound = () =>
+  NextResponse.json(
+    {
+      message: "Rota de autenticação não encontrada.",
+    },
+    { status: 404 },
+  );
 
-export const GET = proxy;
-export const POST = proxy;
-export const PATCH = proxy;
-export const PUT = proxy;
-export const DELETE = proxy;
-export const OPTIONS = proxy;
+export const GET = notFound;
+export const POST = notFound;
+export const PATCH = notFound;
+export const PUT = notFound;
+export const DELETE = notFound;
+export const OPTIONS = notFound;

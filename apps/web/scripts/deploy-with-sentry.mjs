@@ -79,6 +79,9 @@ if (!process.env.SENTRY_RELEASE) {
 requireEnv("NEXT_PUBLIC_APP_URL", "deploy:web");
 requireEnv("NEXT_PUBLIC_API_URL", "deploy:web");
 requireEnv("INTERNAL_API_URL", "deploy:web");
+requireEnv("WORKOS_API_KEY", "deploy:web");
+requireEnv("WORKOS_CLIENT_ID", "deploy:web");
+requireEnv("DATON_SESSION_SECRET", "deploy:web");
 
 run(pnpmCommand, ["exec", "opennextjs-cloudflare", "build"]);
 run(pnpmCommand, ["exec", "opennextjs-cloudflare", "deploy", ...args]);

@@ -1,8 +1,10 @@
+import * as Sentry from "@sentry/cloudflare";
 import { and, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { ZodError } from "zod";
 
+import { bootstrapOrganizationWithWorkOs } from "@daton/auth";
 import {
   createBootstrapOrganizationSchema,
   organizationMemberSummarySchema,
@@ -62,100 +64,82 @@ bootstrapRoutes.post("/bootstrap/organization", async (c) => {
     });
   }
 
-  const authResult = snapshot?.user
-    ? null
-    : await c
-        .get("auth")
-        .api.signUpEmail({
-          headers: c.req.raw.headers,
-          body: {
-            name: input.adminFullName,
-            email: input.adminEmail,
-            password: input.password,
-          },
-          returnHeaders: true,
-        })
-        .catch(() => {
-          throw new HTTPException(400, {
-            message: "Não foi possível criar o acesso inicial com os dados informados.",
-          });
-        });
-
-  const user = snapshot?.user ?? authResult?.response.user;
-
-  if (!user) {
-    throw new HTTPException(500, {
-      message: "Não foi possível determinar o usuário autenticado para criar a organização.",
+  if (!snapshot && !input.password) {
+    throw new HTTPException(400, {
+      message: "A senha inicial é obrigatória para criar o primeiro acesso.",
     });
   }
 
-  const result = await db.transaction(async (tx: AppDbExecutor) => {
-      const [organization] = await tx
-        .insert(organizations)
-        .values({
-          legalName: input.legalName,
-          tradeName: input.tradeName || null,
-          legalIdentifier: input.legalIdentifier,
-        })
-        .returning();
+  try {
+    const result = await bootstrapOrganizationWithWorkOs(
+      db,
+      c.get("workosEnv"),
+      input,
+      snapshot
+        ? {
+            id: snapshot.user.id,
+            email: snapshot.user.email,
+            firstName: null,
+            lastName: null,
+          }
+        : null,
+    );
 
-      if (!organization) {
-        throw new HTTPException(500, { message: "Não foi possível criar a organização." });
-      }
-
-      const [member] = await tx
-        .insert(organizationMembers)
-        .values({
-          organizationId: organization.id,
-          userId: user.id,
-          fullName: user.name ?? user.email,
-          email: user.email,
-        })
-        .returning();
-
-      if (!member) {
-        throw new HTTPException(500, { message: "Não foi possível criar o membro da organização." });
-      }
-
-      await tx.insert(memberRoleAssignments).values([
-        {
-          organizationId: organization.id,
-          memberId: member.id,
-          role: "owner",
-        },
-        {
-          organizationId: organization.id,
-          memberId: member.id,
-          role: "admin",
-        },
-      ]);
-
-      await recordAuditEvent(tx, {
-        action: "organization.bootstrap",
-        entityType: "organization",
-        entityId: organization.id,
-        organizationId: organization.id,
-        actorUserId: user.id,
-        actorMemberId: member.id,
-        metadata: {},
-      });
-
-      return {
-        organization,
-        member,
-      };
+    await recordAuditEvent(db as AppDbExecutor, {
+      action: "organization.bootstrap",
+      entityType: "organization",
+      entityId: result.organization.id,
+      organizationId: result.organization.id,
+      actorUserId: result.workosUser.id,
+      actorMemberId: result.member.id,
+      metadata: {},
     });
 
-  const response = c.json({
-    organization: organizationSummarySchema.parse(result.organization),
-    member: organizationMemberSummarySchema.parse(result.member),
-  });
+    return c.json({
+      member: organizationMemberSummarySchema.parse({
+        id: result.member.id,
+        userId: result.workosUser.id,
+        fullName: result.member.fullName,
+        email: result.member.email,
+        status: "active",
+      }),
+      organization: organizationSummarySchema.parse({
+        id: result.organization.id,
+        legalName: result.organization.legalName,
+        tradeName: result.organization.tradeName,
+        legalIdentifier: result.organization.legalIdentifier,
+        openingDate: null,
+        taxRegime: null,
+        primaryCnae: null,
+        stateRegistration: null,
+        municipalRegistration: null,
+        onboardingData: { company_profile: null },
+        onboardingStatus: "pending",
+      }),
+      workosOrganizationId: result.organization.workosOrganizationId,
+      workosUserId: result.workosUser.id,
+    });
+  } catch (error) {
+    Sentry.captureException(error);
 
-  authResult?.headers.forEach((value, key) => {
-    if (key.toLowerCase() === "set-cookie") {
-      response.headers.append(key, value);
-    }
-  });
+    throw new HTTPException(400, {
+      message: "Não foi possível criar o ambiente inicial com os dados informados.",
+    });
+  }
+});
 
-  return response;
+bootstrapRoutes.get("/auth/session-context", async (c) => {
+  const sessionContext = c.get("sessionContext");
+
+  if (!sessionContext) {
+    throw new HTTPException(401, {
+      message: "Autenticação obrigatória.",
+    });
+  }
+
+  return c.json({
+    membershipCount: sessionContext.membershipCount,
+    session: sessionContext.snapshot,
+    workosOrganizationId: sessionContext.workosOrganizationId,
+  });
 });

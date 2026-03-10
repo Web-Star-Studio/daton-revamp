@@ -204,7 +204,7 @@ export const createBootstrapOrganizationSchema = (options?: { allowFictional?: b
     legalIdentifier: createCnpjSchema(options),
     adminFullName: trimmedString(2, 120),
     adminEmail: z.email(),
-    password: z.string().min(8).max(128),
+    password: z.string().trim().min(8).max(128).optional().or(z.literal("")),
   });
 
 export const bootstrapOrganizationSchema = createBootstrapOrganizationSchema();

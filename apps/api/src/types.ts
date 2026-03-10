@@ -1,17 +1,16 @@
-import type { DatonAuth } from "@daton/auth";
+import type { WorkOsManagementEnv, createWorkOsClient } from "@daton/auth";
 
-import type { AppDb, SessionSnapshot } from "./lib/session";
+import type { AppDb, SessionContext, SessionSnapshot } from "./lib/session";
 
 export type AppBindings = {
   Bindings: {
     DATABASE_URL?: string;
-    BETTER_AUTH_SECRET: string;
-    BETTER_AUTH_URL: string;
-    BETTER_AUTH_PASSWORD_HASH_ITERATIONS?: string;
+    WORKOS_API_KEY: string;
+    WORKOS_CLIENT_ID: string;
+    WORKOS_AUTHKIT_DOMAIN?: string;
     NEXT_PUBLIC_APP_URL: string;
     NEXT_PUBLIC_API_URL: string;
     CORS_ORIGIN: string;
-    COOKIE_DOMAIN?: string;
     SENTRY_DSN?: string;
     SENTRY_AUTH_TOKEN?: string;
     SENTRY_ORG?: string;
@@ -26,7 +25,9 @@ export type AppBindings = {
   };
   Variables: {
     db: AppDb;
-    auth: DatonAuth;
+    workos: ReturnType<typeof createWorkOsClient>;
+    workosEnv: WorkOsManagementEnv;
+    sessionContext: SessionContext | null;
     sessionSnapshot: SessionSnapshot | null;
   };
 };

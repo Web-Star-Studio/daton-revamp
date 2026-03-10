@@ -193,7 +193,7 @@ export function OrganizationUnitsWorkspace({
       Unidade: branch.name,
       Código: branch.code,
       CNPJ: formatCnpj(branch.legalIdentifier),
-      Tipo: branch.isHeadquarters ? "Headquarters" : "Filial",
+      Tipo: branch.isHeadquarters ? "Sede" : "Filial",
       Status: branch.status === "active" ? "Ativa" : "Desativada",
       Gestor: branch.managerMemberId
         ? resolveMemberLabel(members, branch.managerMemberId)
@@ -286,12 +286,12 @@ export function OrganizationUnitsWorkspace({
           </div>
         ) : (
           <div className="collaborators-empty-state">
-              <strong>Nenhuma unidade encontrada</strong>
-              <p>
+            <strong>Nenhuma unidade encontrada</strong>
+            <p>
               Ajuste a busca ou os filtros para localizar as unidades
               cadastradas.
-              </p>
-            </div>
+            </p>
+          </div>
         )}
       </div>
 
@@ -433,7 +433,7 @@ function filterOrganizationUnits({
       branch.code,
       branch.legalIdentifier,
       formatCnpj(branch.legalIdentifier),
-      branch.isHeadquarters ? "headquarters" : "filial",
+      branch.isHeadquarters ? "headquarters matriz" : "filial",
       formatBranchStatus(branch.status),
     ]
       .join(" ")

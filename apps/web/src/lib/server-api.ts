@@ -24,6 +24,16 @@ import { toInternalApiUrl } from "./config";
 
 const branchListSchema = z.array(branchSummarySchema);
 
+export class ServerApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ServerApiError";
+    this.status = status;
+  }
+}
+
 type ServerFetchOptions = RequestInit & {
   allowUnauthorized?: boolean;
 };
@@ -43,7 +53,7 @@ async function parseResponse<T>(response: Response, schema?: z.ZodType<T>) {
       typeof payload === "string"
         ? payload
         : (payload as { message?: string } | null)?.message ?? "A solicitação falhou.";
-    throw new Error(message);
+    throw new ServerApiError(message, response.status);
   }
 
   return schema ? schema.parse(payload) : payload;

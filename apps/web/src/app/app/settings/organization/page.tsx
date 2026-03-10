@@ -174,7 +174,7 @@ function formatHeadquartersLocation(branch?: ServerBranch) {
 
 function formatHeadquartersAddress(branch?: ServerBranch) {
   if (!branch) {
-    return "Cadastre uma unidade headquarters para exibir o endereço aqui.";
+    return "Cadastre uma sede para exibir o endereço aqui.";
   }
 
   const parts = [branch.addressLine1, branch.addressLine2]
@@ -298,11 +298,12 @@ export default async function OrganizationSettingsPage({
     return <AuthRedirect href="/auth?mode=sign-up" />;
   }
 
+  const activeTab = getActiveOrganizationTab(resolvedSearchParams.tab);
   const [branches, members, departments, employees] = (await Promise.all([
     getServerBranches(),
-    getServerOrganizationMembers(),
-    getServerDepartments(),
-    getServerEmployees(),
+    activeTab === "units" ? getServerOrganizationMembers() : Promise.resolve([]),
+    activeTab === "departments" ? getServerDepartments() : Promise.resolve([]),
+    activeTab === "departments" ? getServerEmployees() : Promise.resolve([]),
   ])) as [
     ServerBranch[],
     ServerOrganizationMember[],
@@ -310,7 +311,6 @@ export default async function OrganizationSettingsPage({
     ServerEmployee[],
   ];
 
-  const activeTab = getActiveOrganizationTab(resolvedSearchParams.tab);
   const isEditOrganization = resolvedSearchParams.edit === "organization";
   const unitSearchValue = resolvedSearchParams.q?.trim() ?? "";
   const unitStatusFilter = getUnitStatusFilter(resolvedSearchParams.status);

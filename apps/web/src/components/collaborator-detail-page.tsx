@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { CreateEmployeeInput, UpdateEmployeeInput } from "@daton/contracts";
 
@@ -55,6 +55,10 @@ export function CollaboratorDetailPage({
   const searchParams = useSearchParams();
   const [currentCollaborator, setCurrentCollaborator] = useState(collaborator);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCurrentCollaborator(collaborator);
+  }, [collaborator]);
 
   if (!currentCollaborator) {
     return (

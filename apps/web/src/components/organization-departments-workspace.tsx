@@ -444,12 +444,19 @@ function DepartmentEditorModal({
   onSubmit: (payload: CreateDepartmentInput | UpdateDepartmentInput) => Promise<void>;
 }) {
   const portalTarget = usePortalTarget();
+  const [validationError, setValidationError] = useState<string | null>(null);
   const parentOptions = departments
     .filter((item) => item.id !== department?.id)
     .sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));
   const managerOptions = employees
     .slice()
     .sort((left, right) => left.fullName.localeCompare(right.fullName, "pt-BR"));
+
+  useEffect(() => {
+    if (isOpen) {
+      setValidationError(null);
+    }
+  }, [department?.id, isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -510,6 +517,16 @@ function DepartmentEditorModal({
 
             const formData = new FormData(event.currentTarget);
             const budgetValue = String(formData.get("budget") ?? "").trim();
+            const parsedBudget = budgetValue
+              ? Number.parseFloat(budgetValue.replace(",", "."))
+              : null;
+
+            if (budgetValue && !Number.isFinite(parsedBudget)) {
+              setValidationError("Informe um orçamento numérico válido.");
+              return;
+            }
+
+            setValidationError(null);
             const payload = {
               name: String(formData.get("name") ?? "").trim(),
               code:
@@ -524,7 +541,7 @@ function DepartmentEditorModal({
                 .getAll("branchIds")
                 .map((value) => String(value).trim())
                 .filter(Boolean),
-              budget: budgetValue ? Number(budgetValue.replace(",", ".")) : null,
+              budget: parsedBudget,
               costCenter: String(formData.get("costCenter") ?? "").trim(),
               notes: String(formData.get("notes") ?? "").trim(),
               ...(department
@@ -541,6 +558,9 @@ function DepartmentEditorModal({
             void onSubmit(payload);
           }}
         >
+          {validationError ? (
+            <p className="collaborators-panel__feedback">{validationError}</p>
+          ) : null}
           <div className="app-modal__body collaborator-role-form__body">
             <div className="field">
               <label htmlFor="department-name">Nome do departamento</label>

@@ -62,16 +62,7 @@ export default async function AuthPage({ searchParams }: AuthPageProps) {
         </div>
         <div className="auth-panel__form auth-panel__form--chrome">
           <p className="form-kicker">{content.kicker}</p>
-          <p
-            style={{
-              color: "var(--ink-soft)",
-              marginTop: 0,
-              marginBottom: "2.5rem",
-              fontSize: "0.9rem",
-            }}
-          >
-            {content.description}
-          </p>
+          <p className="auth-panel__description">{content.description}</p>
           {mode === "sign-in" ? <SignInForm /> : <BootstrapForm />}
         </div>
       </section>

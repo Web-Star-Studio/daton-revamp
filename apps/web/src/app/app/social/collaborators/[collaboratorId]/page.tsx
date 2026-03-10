@@ -6,6 +6,7 @@ import {
   getServerEmployee,
   getServerEmployees,
   getServerPositions,
+  ServerApiError,
 } from "@/lib/server-api";
 import { requireSession } from "@/lib/session";
 
@@ -41,7 +42,13 @@ export default async function CollaboratorDetailRoute({
   );
   const isEditing = canManagePeople && resolvedSearchParams.edit === "1";
   const [collaborator, branches, departments, employees, positions] = await Promise.all([
-    getServerEmployee(resolvedParams.collaboratorId).catch(() => null),
+    getServerEmployee(resolvedParams.collaboratorId).catch((error) => {
+      if (error instanceof ServerApiError && error.status === 404) {
+        return null;
+      }
+
+      throw error;
+    }),
     isEditing ? getServerBranches() : Promise.resolve([]),
     isEditing ? getServerDepartments() : Promise.resolve([]),
     isEditing ? getServerEmployees() : Promise.resolve([]),

@@ -43,7 +43,7 @@ export default async function OrganizationOnboardingPage() {
             </p>
             <OrganizationProfileReview draft={organizationReview} />
             <div className="organization-profile-form__actions">
-              <Link className="button" href="/app/settings/organization">
+              <Link className="button" href="/app">
                 Entrar no app
               </Link>
               <Link

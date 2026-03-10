@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import type { CreatePositionInput, UpdatePositionInput } from "@daton/contracts";
@@ -30,6 +30,15 @@ export function PositionEditorModal({
 }: PositionEditorModalProps) {
   const portalTarget = usePortalTarget();
   const isEditing = Boolean(initialPosition);
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleClose = () => {
+    if (isSaving) {
+      return;
+    }
+
+    onClose();
+  };
 
   useEffect(() => {
     window.dispatchEvent(
@@ -53,14 +62,14 @@ export function PositionEditorModal({
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
+      if (event.key === "Escape" && !isSaving) {
+        handleClose();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [handleClose, isOpen, isSaving]);
 
   const reportOptions = useMemo(
     () =>
@@ -77,9 +86,8 @@ export function PositionEditorModal({
 
   return createPortal(
     <div
-      aria-hidden="true"
       className="app-modal app-modal--overlay"
-      onClick={onClose}
+      onClick={handleClose}
       role="presentation"
     >
       <div
@@ -101,7 +109,8 @@ export function PositionEditorModal({
           <button
             aria-label="Fechar edição de cargo"
             className="icon-button"
-            onClick={onClose}
+            disabled={isSaving}
+            onClick={handleClose}
             type="button"
           >
             <CloseIcon />
@@ -111,7 +120,7 @@ export function PositionEditorModal({
         <form
           className="collaborator-role-form"
           key={initialPosition?.id ?? "position-editor"}
-          onSubmit={(event) => {
+          onSubmit={async (event) => {
             event.preventDefault();
 
             const formData = new FormData(event.currentTarget);
@@ -154,172 +163,185 @@ export function PositionEditorModal({
                 : null,
             } satisfies CreatePositionInput | UpdatePositionInput;
 
-            void onSubmit(payload);
+            setIsSaving(true);
+
+            try {
+              await onSubmit(payload);
+            } finally {
+              setIsSaving(false);
+            }
           }}
         >
-          <div className="app-modal__body collaborator-role-form__body">
-            <div className="field">
-              <label htmlFor="position-title">Cargo</label>
-              <input
-                autoFocus
-                defaultValue={initialPosition?.title ?? ""}
-                id="position-title"
-                name="title"
-                placeholder="Ex: Analista de Processos"
-                required
-                type="text"
-              />
+          <fieldset className="app-modal__fieldset" disabled={isSaving}>
+            <div className="app-modal__body collaborator-role-form__body">
+              <div className="field">
+                <label htmlFor="position-title">Cargo</label>
+                <input
+                  autoFocus
+                  defaultValue={initialPosition?.title ?? ""}
+                  id="position-title"
+                  name="title"
+                  placeholder="Ex: Analista de Processos"
+                  required
+                  type="text"
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="position-department">Departamento</label>
+                <select
+                  defaultValue={initialPosition?.departmentId ?? ""}
+                  id="position-department"
+                  name="departmentId"
+                >
+                  <option value="">Selecionar departamento</option>
+                  {departments.map((department) => (
+                    <option key={department.id} value={department.id}>
+                      {department.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="position-level">Nível</label>
+                <input
+                  defaultValue={initialPosition?.level ?? ""}
+                  id="position-level"
+                  name="level"
+                  placeholder="Ex: Pleno"
+                  type="text"
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="position-reports-to">Reporta para</label>
+                <select
+                  defaultValue={initialPosition?.reportsToPositionId ?? ""}
+                  id="position-reports-to"
+                  name="reportsToPositionId"
+                >
+                  <option value="">Sem cargo superior</option>
+                  {reportOptions.map((position) => (
+                    <option key={position.id} value={position.id}>
+                      {position.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="position-salary-range-min">Faixa salarial mínima</label>
+                <input
+                  defaultValue={
+                    typeof initialPosition?.salaryRangeMin === "number"
+                      ? String(initialPosition.salaryRangeMin)
+                      : ""
+                  }
+                  id="position-salary-range-min"
+                  inputMode="decimal"
+                  name="salaryRangeMin"
+                  placeholder="Ex: 3500"
+                  type="number"
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="position-salary-range-max">Faixa salarial máxima</label>
+                <input
+                  defaultValue={
+                    typeof initialPosition?.salaryRangeMax === "number"
+                      ? String(initialPosition.salaryRangeMax)
+                      : ""
+                  }
+                  id="position-salary-range-max"
+                  inputMode="decimal"
+                  name="salaryRangeMax"
+                  placeholder="Ex: 5200"
+                  type="number"
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="position-required-education">
+                  Escolaridade exigida
+                </label>
+                <select
+                  defaultValue={initialPosition?.requiredEducationLevel ?? ""}
+                  id="position-required-education"
+                  name="requiredEducationLevel"
+                >
+                  <option value="">Selecionar escolaridade</option>
+                  {educationLevels.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="position-required-experience">
+                  Experiência mínima (anos)
+                </label>
+                <input
+                  defaultValue={
+                    typeof initialPosition?.requiredExperienceYears === "number"
+                      ? String(initialPosition.requiredExperienceYears)
+                      : ""
+                  }
+                  id="position-required-experience"
+                  inputMode="numeric"
+                  min="0"
+                  name="requiredExperienceYears"
+                  type="number"
+                />
+              </div>
+              <div className="field field--wide">
+                <label htmlFor="position-description">Descrição</label>
+                <textarea
+                  defaultValue={initialPosition?.description ?? ""}
+                  id="position-description"
+                  name="description"
+                  rows={4}
+                />
+              </div>
+              <div className="field field--wide">
+                <label htmlFor="position-requirements">
+                  Requisitos
+                </label>
+                <textarea
+                  defaultValue={initialPosition?.requirements.join("\n") ?? ""}
+                  id="position-requirements"
+                  name="requirements"
+                  placeholder="Um requisito por linha"
+                  rows={4}
+                />
+              </div>
+              <div className="field field--wide">
+                <label htmlFor="position-responsibilities">
+                  Responsabilidades
+                </label>
+                <textarea
+                  defaultValue={initialPosition?.responsibilities.join("\n") ?? ""}
+                  id="position-responsibilities"
+                  name="responsibilities"
+                  placeholder="Uma responsabilidade por linha"
+                  rows={4}
+                />
+              </div>
             </div>
-            <div className="field">
-              <label htmlFor="position-department">Departamento</label>
-              <select
-                defaultValue={initialPosition?.departmentId ?? ""}
-                id="position-department"
-                name="departmentId"
+            <footer className="collaborator-form__footer">
+              <button
+                className="button button--secondary"
+                disabled={isSaving}
+                onClick={handleClose}
+                type="button"
               >
-                <option value="">Selecionar departamento</option>
-                {departments.map((department) => (
-                  <option key={department.id} value={department.id}>
-                    {department.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="position-level">Nível</label>
-              <input
-                defaultValue={initialPosition?.level ?? ""}
-                id="position-level"
-                name="level"
-                placeholder="Ex: Pleno"
-                type="text"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="position-reports-to">Reporta para</label>
-              <select
-                defaultValue={initialPosition?.reportsToPositionId ?? ""}
-                id="position-reports-to"
-                name="reportsToPositionId"
-              >
-                <option value="">Sem cargo superior</option>
-                {reportOptions.map((position) => (
-                  <option key={position.id} value={position.id}>
-                    {position.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="position-salary-range-min">Faixa salarial mínima</label>
-              <input
-                defaultValue={
-                  typeof initialPosition?.salaryRangeMin === "number"
-                    ? String(initialPosition.salaryRangeMin)
-                    : ""
-                }
-                id="position-salary-range-min"
-                inputMode="decimal"
-                name="salaryRangeMin"
-                placeholder="Ex: 3500"
-                type="number"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="position-salary-range-max">Faixa salarial máxima</label>
-              <input
-                defaultValue={
-                  typeof initialPosition?.salaryRangeMax === "number"
-                    ? String(initialPosition.salaryRangeMax)
-                    : ""
-                }
-                id="position-salary-range-max"
-                inputMode="decimal"
-                name="salaryRangeMax"
-                placeholder="Ex: 5200"
-                type="number"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="position-required-education">
-                Escolaridade exigida
-              </label>
-              <select
-                defaultValue={initialPosition?.requiredEducationLevel ?? ""}
-                id="position-required-education"
-                name="requiredEducationLevel"
-              >
-                <option value="">Selecionar escolaridade</option>
-                {educationLevels.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="position-required-experience">
-                Experiência mínima (anos)
-              </label>
-              <input
-                defaultValue={
-                  typeof initialPosition?.requiredExperienceYears === "number"
-                    ? String(initialPosition.requiredExperienceYears)
-                    : ""
-                }
-                id="position-required-experience"
-                inputMode="numeric"
-                min="0"
-                name="requiredExperienceYears"
-                type="number"
-              />
-            </div>
-            <div className="field field--wide">
-              <label htmlFor="position-description">Descrição</label>
-              <textarea
-                defaultValue={initialPosition?.description ?? ""}
-                id="position-description"
-                name="description"
-                rows={4}
-              />
-            </div>
-            <div className="field field--wide">
-              <label htmlFor="position-requirements">
-                Requisitos
-              </label>
-              <textarea
-                defaultValue={initialPosition?.requirements.join("\n") ?? ""}
-                id="position-requirements"
-                name="requirements"
-                placeholder="Um requisito por linha"
-                rows={4}
-              />
-            </div>
-            <div className="field field--wide">
-              <label htmlFor="position-responsibilities">
-                Responsabilidades
-              </label>
-              <textarea
-                defaultValue={initialPosition?.responsibilities.join("\n") ?? ""}
-                id="position-responsibilities"
-                name="responsibilities"
-                placeholder="Uma responsabilidade por linha"
-                rows={4}
-              />
-            </div>
-          </div>
-          <footer className="collaborator-form__footer">
-            <button
-              className="button button--secondary"
-              onClick={onClose}
-              type="button"
-            >
-              Cancelar
-            </button>
-            <button className="button" type="submit">
-              {isEditing ? "Salvar cargo" : "Criar cargo"}
-            </button>
-          </footer>
+                Cancelar
+              </button>
+              <button className="button" disabled={isSaving} type="submit">
+                {isSaving
+                  ? "Salvando..."
+                  : isEditing
+                    ? "Salvar cargo"
+                    : "Criar cargo"}
+              </button>
+            </footer>
+          </fieldset>
         </form>
       </div>
     </div>,

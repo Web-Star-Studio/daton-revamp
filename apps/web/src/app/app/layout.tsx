@@ -28,9 +28,7 @@ export default async function WorkspaceLayout({
     redirect("/onboarding/organization");
   }
 
-  const notifications = session.organization
-    ? await getServerNotifications()
-    : [];
+  const notifications = await getServerNotifications();
 
   return (
     <AppShell modal={modal} notifications={notifications} session={session}>

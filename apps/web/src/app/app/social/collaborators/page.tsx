@@ -8,13 +8,7 @@ import {
 } from "@/lib/server-api";
 import { requireSession } from "@/lib/session";
 
-type SocialCollaboratorsPageProps = {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-};
-
-export default async function SocialCollaboratorsPage({
-  searchParams: _searchParams,
-}: SocialCollaboratorsPageProps) {
+export default async function SocialCollaboratorsPage() {
   const session = await requireSession();
 
   if (!session) {

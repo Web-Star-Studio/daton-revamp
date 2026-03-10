@@ -149,6 +149,27 @@ const ensureUniqueCode = async (
   }
 };
 
+const hasOtherActiveHeadquarters = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  branchId?: string,
+) => {
+  const [headquarters] = await db
+    .select({ id: branches.id })
+    .from(branches)
+    .where(
+      and(
+        eq(branches.organizationId, organizationId),
+        eq(branches.status, "active"),
+        eq(branches.isHeadquarters, true),
+        branchId ? ne(branches.id, branchId) : undefined,
+      ),
+    )
+    .limit(1);
+
+  return Boolean(headquarters);
+};
+
 const assignBranchManager = async (
   db: AppDbExecutor,
   input: {
@@ -450,6 +471,12 @@ branchRoutes.post("/branches", async (c) => {
   await assertParentBranch(db, organization.id, null, input.parentBranchId ?? null);
 
   const result = await db.transaction(async (tx: AppDbExecutor) => {
+    if (input.isHeadquarters && await hasOtherActiveHeadquarters(tx, organization.id)) {
+      throw new HTTPException(409, {
+        message: "Já existe uma sede ativa cadastrada para esta organização.",
+      });
+    }
+
     const [branch] = await tx
       .insert(branches)
       .values({
@@ -558,6 +585,32 @@ branchRoutes.patch(
     }
 
     await db.transaction(async (tx: AppDbExecutor) => {
+      const nextStatus = input.status ?? existingBranch.status;
+      const nextIsHeadquarters = Boolean(input.isHeadquarters);
+      const willBeActiveHeadquarters =
+        nextStatus === "active" && nextIsHeadquarters;
+      const isActiveHeadquartersToday =
+        existingBranch.status === "active" && existingBranch.isHeadquarters;
+
+      if (
+        willBeActiveHeadquarters &&
+        await hasOtherActiveHeadquarters(tx, organization.id, branchId)
+      ) {
+        throw new HTTPException(409, {
+          message: "Já existe uma sede ativa cadastrada para esta organização.",
+        });
+      }
+
+      if (
+        isActiveHeadquartersToday &&
+        !willBeActiveHeadquarters &&
+        !(await hasOtherActiveHeadquarters(tx, organization.id, branchId))
+      ) {
+        throw new HTTPException(400, {
+          message: "A organização precisa manter ao menos uma sede ativa.",
+        });
+      }
+
       await tx
         .update(branches)
         .set({
@@ -572,9 +625,9 @@ branchRoutes.patch(
           stateOrProvince: normalizeEmpty(input.stateOrProvince),
           postalCode: normalizeEmpty(input.postalCode),
           country: normalizeEmpty(input.country),
-          isHeadquarters: Boolean(input.isHeadquarters),
+          isHeadquarters: nextIsHeadquarters,
           parentBranchId: input.parentBranchId ?? null,
-          status: input.status ?? existingBranch.status,
+          status: nextStatus,
           updatedAt: new Date(),
         })
         .where(eq(branches.id, branchId));
@@ -596,7 +649,7 @@ branchRoutes.patch(
         actorMemberId: member.id,
         metadata: {
           code: input.code,
-          status: input.status ?? existingBranch.status,
+          status: nextStatus,
         },
       });
     });

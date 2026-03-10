@@ -14,15 +14,34 @@ type ExceptionStateProps = {
 const fallbackMessage =
   "Ocorreu uma inconsistência interna. Tente recarregar a visualização para continuar.";
 
+const buildSupportReference = (errorMessage?: string) => {
+  const normalized = errorMessage?.trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  let hash = 0;
+
+  for (const character of normalized) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+
+  return `ERR-${hash.toString(36).toUpperCase().padStart(6, "0").slice(0, 8)}`;
+};
+
 export function ExceptionState({
   errorMessage,
-  homeHref = "/app",
-  homeLabel = "Ir para o ambiente",
+  homeHref,
+  homeLabel = "Ir para o início",
   retryLabel,
   title,
   onRetry,
 }: ExceptionStateProps) {
-  const detail = errorMessage?.trim() ? errorMessage.trim() : fallbackMessage;
+  const normalizedHomeHref = homeHref?.trim();
+  const supportReference = buildSupportReference(errorMessage);
+  const hasHomeAction = Boolean(normalizedHomeHref);
+  const safeHomeHref = normalizedHomeHref ?? "/";
 
   return (
     <main className="exception-shell">
@@ -36,8 +55,11 @@ export function ExceptionState({
         <div className="exception-panel">
           <div className="exception-panel__body">
             <div className="exception-panel__detail">
-              <span>Detalhe técnico</span>
-              <p>{detail}</p>
+              <span>Como seguir</span>
+              <p>{fallbackMessage}</p>
+              {supportReference ? (
+                <p>Referência de suporte: {supportReference}</p>
+              ) : null}
             </div>
           </div>
 
@@ -45,9 +67,11 @@ export function ExceptionState({
             <button className="button" onClick={onRetry} type="button">
               {retryLabel}
             </button>
-            <Link className="button button--secondary" href={homeHref}>
-              {homeLabel}
-            </Link>
+            {hasHomeAction ? (
+              <Link className="button button--secondary" href={safeHomeHref}>
+                {homeLabel}
+              </Link>
+            ) : null}
           </div>
         </div>
       </section>

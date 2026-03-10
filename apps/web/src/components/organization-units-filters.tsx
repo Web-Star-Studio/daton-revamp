@@ -103,7 +103,7 @@ export function OrganizationUnitsFilters({
           value={kindInput}
         >
           <option value="all">Todas</option>
-          <option value="headquarters">Headquarters</option>
+          <option value="headquarters">Sede</option>
           <option value="branch">Filiais</option>
         </select>
       </label>

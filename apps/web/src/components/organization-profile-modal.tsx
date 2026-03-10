@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
@@ -28,14 +28,14 @@ export function OrganizationProfileModal({
   const searchParams = useSearchParams();
   const portalTarget = usePortalTarget();
 
-  const close = () => {
+  const close = useCallback(() => {
     const nextSearchParams = new URLSearchParams(searchParams.toString());
     nextSearchParams.delete("edit");
     const nextUrl = nextSearchParams.toString()
       ? `${pathname}?${nextSearchParams.toString()}`
       : pathname;
     router.replace(nextUrl);
-  };
+  }, [pathname, router, searchParams]);
 
   useEffect(() => {
     if (!open) return;
@@ -48,7 +48,7 @@ export function OrganizationProfileModal({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open]);
+  }, [close, open]);
 
   useEffect(() => {
     window.dispatchEvent(

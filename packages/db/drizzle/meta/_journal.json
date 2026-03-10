@@ -36,6 +36,13 @@
       "when": 1773165600000,
       "tag": "0004_tense_scarlet_spider",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1773128743897,
+      "tag": "0005_normal_krista_starr",
+      "breakpoints": true
     }
   ]
 }

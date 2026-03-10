@@ -9,6 +9,25 @@ const LOCAL_DATABASE_HOSTS = new Set(["127.0.0.1", "localhost"]);
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const repoRootEnvPath = resolve(currentDir, "../../../.env");
 
+const normalizeQuotedEnvValue = (rawValue: string) => {
+  const value = rawValue.trim();
+  const quote = value[0];
+
+  if (
+    value.length < 2 ||
+    (quote !== "\"" && quote !== "'") ||
+    value.at(-1) !== quote
+  ) {
+    return value;
+  }
+
+  const escapedQuotePattern = new RegExp(`\\\\${quote}`, "g");
+  return value
+    .slice(1, -1)
+    .replace(escapedQuotePattern, quote)
+    .replace(/\\\\/g, "\\");
+};
+
 const parseEnvFile = (envFileContents: string) => {
   const parsed: Record<string, string> = {};
 
@@ -32,7 +51,7 @@ const parseEnvFile = (envFileContents: string) => {
       continue;
     }
 
-    parsed[key] = value;
+    parsed[key] = normalizeQuotedEnvValue(value);
   }
 
   return parsed;

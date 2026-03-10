@@ -269,6 +269,7 @@ export const employees = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
+    cpfIdx: index("employees_cpf_idx").on(table.cpf),
     orgEmailIdx: index("employees_org_email_idx").on(table.organizationId, table.email),
     orgEmployeeCodeIdx: uniqueIndex("employees_org_employee_code_idx").on(
       table.organizationId,

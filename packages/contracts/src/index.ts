@@ -337,35 +337,32 @@ const normalizeOptionalString = (value?: string | null) => {
   return trimmed ? trimmed : null;
 };
 
+const requireCustomSectorIfOther = (
+  value: { customSector?: string | null; sector: string },
+  ctx: z.RefinementCtx,
+) => {
+  if (value.sector === "other" && !normalizeOptionalString(value.customSector)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Informe o setor da empresa.",
+      path: ["customSector"],
+    });
+  }
+};
+
 export const companyProfileSchema = z
   .object({
     ...companyProfileFieldShape,
     customSector: optionalTrimmedString(120),
   })
-  .superRefine((value, ctx) => {
-    if (value.sector === "other" && !normalizeOptionalString(value.customSector)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Informe o setor da empresa.",
-        path: ["customSector"],
-      });
-    }
-  });
+  .superRefine(requireCustomSectorIfOther);
 
 export const onboardingCompanyProfileSchema = z
   .object({
     ...companyProfileFieldShape,
     customSector: z.string().trim().max(120).nullable(),
   })
-  .superRefine((value, ctx) => {
-    if (value.sector === "other" && !normalizeOptionalString(value.customSector)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Informe o setor da empresa.",
-        path: ["customSector"],
-      });
-    }
-  });
+  .superRefine(requireCustomSectorIfOther);
 
 export const onboardingDataSchema = z.object({
   company_profile: onboardingCompanyProfileSchema.nullable(),

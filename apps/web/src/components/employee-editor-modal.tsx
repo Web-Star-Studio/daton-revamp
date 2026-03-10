@@ -7,6 +7,7 @@ import type { CreateEmployeeInput, UpdateEmployeeInput } from "@daton/contracts"
 
 import {
   educationLevels,
+  employmentTypes,
   formatCpf,
   formatPhone,
   genderOptions,
@@ -23,7 +24,6 @@ import { COLLABORATOR_MODAL_VISIBILITY_EVENT } from "./collaborators-events";
 import { CloseIcon } from "./app-icons";
 
 const employeeStatuses = ["Ativo", "Inativo", "Afastado"] as const;
-const employmentTypes = ["CLT", "PJ", "Estágio", "Temporário", "Aprendiz"] as const;
 const ethnicityOptions = [
   "Branca",
   "Preta",
@@ -64,6 +64,16 @@ export function EmployeeEditorModal({
   );
 
   useEffect(() => {
+    return () => {
+      window.dispatchEvent(
+        new CustomEvent(COLLABORATOR_MODAL_VISIBILITY_EVENT, {
+          detail: { open: false },
+        }),
+      );
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isOpen) {
       return;
     }
@@ -78,14 +88,6 @@ export function EmployeeEditorModal({
         detail: { open: isOpen },
       }),
     );
-
-    return () => {
-      window.dispatchEvent(
-        new CustomEvent(COLLABORATOR_MODAL_VISIBILITY_EVENT, {
-          detail: { open: false },
-        }),
-      );
-    };
   }, [isOpen]);
 
   useEffect(() => {
@@ -128,7 +130,6 @@ export function EmployeeEditorModal({
 
   return createPortal(
     <div
-      aria-hidden="true"
       className="app-modal app-modal--overlay"
       onClick={onClose}
       role="presentation"

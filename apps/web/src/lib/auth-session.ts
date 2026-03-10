@@ -128,6 +128,9 @@ export const isWorkOsAuthenticationFailure = (error: unknown) => {
     return false;
   }
 
+  // `isWorkOsAuthenticationFailure` only falls back to message matching when
+  // `getErrorName`/`getErrorCode` found nothing and `workOsAuthErrorNames` /
+  // `workOsAuthErrorCodes` could not classify an otherwise unstructured error.
   return (
     error instanceof Error &&
     (error.message.toLowerCase().includes("invalid") ||
@@ -378,7 +381,8 @@ export const revokeDatonSession = async (payload: DatonSessionCookiePayload | nu
     await createWorkOsClient(getWorkOsManagementEnv()).userManagement.revokeSession({
       sessionId: claims.sid,
     });
-  } catch {
+  } catch (error) {
+    console.warn("revokeDatonSession failed.", error);
     // Best effort only.
   }
 };

@@ -19,6 +19,7 @@ import type { DatonSessionEnv, WorkOsEnv, WorkOsManagementEnv } from "./env";
 
 const textEncoder = new TextEncoder();
 const sessionLifetimeSeconds = 60 * 60 * 24 * 7;
+const defaultWorkOsIssuer = "https://api.workos.com";
 
 export const datonSessionCookieName = "daton-session";
 export const accessTokenRefreshWindowSeconds = 60;
@@ -90,6 +91,20 @@ const getWorkOsJwks = (clientId: string) => {
   return jwks;
 };
 
+const normalizeIssuerBase = (issuer: string) => issuer.replace(/\/+$/, "");
+
+const getExpectedWorkOsIssuers = (env: WorkOsEnv) => {
+  const issuerBase = normalizeIssuerBase(
+    env.WORKOS_AUTHKIT_DOMAIN?.startsWith("http")
+      ? env.WORKOS_AUTHKIT_DOMAIN
+      : env.WORKOS_AUTHKIT_DOMAIN
+        ? `https://${env.WORKOS_AUTHKIT_DOMAIN}`
+        : defaultWorkOsIssuer,
+  );
+
+  return [issuerBase, `${issuerBase}/`];
+};
+
 const getSessionEncryptionKey = async (secret: string) => {
   const importedKey = await crypto.subtle.importKey(
     "raw",
@@ -138,7 +153,11 @@ export const verifyWorkOsAccessToken = async (
   accessToken: string,
   env: WorkOsEnv,
 ): Promise<WorkOsAccessTokenClaims> => {
-  const { payload } = await jwtVerify(accessToken, getWorkOsJwks(env.WORKOS_CLIENT_ID));
+  const { payload } = await jwtVerify(accessToken, getWorkOsJwks(env.WORKOS_CLIENT_ID), {
+    issuer: getExpectedWorkOsIssuers(env),
+    audience: env.WORKOS_CLIENT_ID,
+    algorithms: ["RS256"],
+  });
   return assertAccessTokenClaims(payload);
 };
 
@@ -425,7 +444,7 @@ export const bootstrapOrganizationWithWorkOs = async (
           organizationId: organization.id,
           userId: workosUser.id,
           fullName:
-            input.adminFullName.trim() ||
+            (authenticatedUser ? formatWorkOsUserName(workosUser) : input.adminFullName.trim()) ||
             formatWorkOsUserName(workosUser) ||
             workosUser.email,
           email: workosUser.email,

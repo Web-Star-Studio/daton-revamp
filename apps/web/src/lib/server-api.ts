@@ -28,8 +28,8 @@ const branchListSchema = z.array(branchSummarySchema);
 export class ServerApiError extends Error {
   readonly status: number;
 
-  constructor(message: string, status: number) {
-    super(message);
+  constructor(message: string, status: number, options?: ErrorOptions) {
+    super(message, options);
     this.name = "ServerApiError";
     this.status = status;
   }
@@ -77,7 +77,9 @@ export async function serverApiFetch<T>(
       return null;
     }
 
-    throw new ServerApiError(session.error.message, session.error.status);
+    throw new ServerApiError(session.error.message, session.error.status, {
+      cause: session.error,
+    });
   }
 
   if (session.payload?.accessToken) {

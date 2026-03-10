@@ -41,9 +41,10 @@ const parseBootstrapInput = async (c: any) => {
 };
 
 bootstrapRoutes.post("/bootstrap/organization", async (c) => {
+  const sessionContext = c.get("sessionContext");
   const snapshot = c.get("sessionSnapshot");
 
-  if (snapshot?.organization || snapshot?.member) {
+  if (sessionContext?.membershipCount && sessionContext.membershipCount > 0) {
     throw new HTTPException(409, {
       message: "Este usuário já pertence a uma organização.",
     });

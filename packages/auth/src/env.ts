@@ -11,8 +11,8 @@ const authEnvSchema = z.object({
     .string()
     .trim()
     .optional()
-    .refine((value) => value === undefined || /^\d+$/.test(value), {
-      message: "BETTER_AUTH_PASSWORD_HASH_ITERATIONS must be a positive integer.",
+    .refine((value) => value === undefined || /^[1-9]\d*$/.test(value), {
+      message: "BETTER_AUTH_PASSWORD_HASH_ITERATIONS must be an integer greater than 0.",
     })
     .transform((value) => (value ? Number.parseInt(value, 10) : undefined)),
 });

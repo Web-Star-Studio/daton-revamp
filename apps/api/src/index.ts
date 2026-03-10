@@ -56,6 +56,7 @@ const getServices = (bindings: AppBindings["Bindings"]) => {
 
   const cacheKey = JSON.stringify({
     databaseUrl,
+    authSecret: env.BETTER_AUTH_SECRET,
     authUrl: env.BETTER_AUTH_URL,
     appUrl: env.NEXT_PUBLIC_APP_URL,
     apiUrl: env.NEXT_PUBLIC_API_URL,

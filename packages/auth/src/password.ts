@@ -117,6 +117,8 @@ const parsePbkdf2Hash = (hash: string) => {
   };
 };
 
+export const isLegacyScryptHash = (hash: string) => hash.includes(":");
+
 export const hashPassword = async (
   password: string,
   iterations = DEFAULT_PASSWORD_HASH_ITERATIONS,
@@ -139,7 +141,7 @@ export const verifyPassword = async ({
   password: string;
 }) => {
   try {
-    if (hash.includes(":")) {
+    if (isLegacyScryptHash(hash)) {
       return verifyLegacyScryptHash(password, hash);
     }
 

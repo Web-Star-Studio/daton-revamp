@@ -72,6 +72,14 @@ export async function serverApiFetch<T>(
     headerStore,
   );
 
+  if (!session.payload && session.error) {
+    if (init?.allowUnauthorized && session.error.clearSession) {
+      return null;
+    }
+
+    throw new ServerApiError(session.error.message, session.error.status);
+  }
+
   if (session.payload?.accessToken) {
     requestHeaders.set("authorization", `Bearer ${session.payload.accessToken}`);
   }

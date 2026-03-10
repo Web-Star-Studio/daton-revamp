@@ -70,8 +70,10 @@ bootstrapRoutes.post("/bootstrap/organization", async (c) => {
     });
   }
 
+  let result;
+
   try {
-    const result = await bootstrapOrganizationWithWorkOs(
+    result = await bootstrapOrganizationWithWorkOs(
       db,
       c.get("workosEnv"),
       input,
@@ -85,6 +87,15 @@ bootstrapRoutes.post("/bootstrap/organization", async (c) => {
         : null,
     );
 
+  } catch (error) {
+    Sentry.captureException(error);
+
+    throw new HTTPException(400, {
+      message: "Não foi possível criar o ambiente inicial com os dados informados.",
+    });
+  }
+
+  try {
     await recordAuditEvent(db as AppDbExecutor, {
       action: "organization.bootstrap",
       entityType: "organization",
@@ -95,37 +106,35 @@ bootstrapRoutes.post("/bootstrap/organization", async (c) => {
       metadata: {},
     });
 
-    return c.json({
-      member: organizationMemberSummarySchema.parse({
-        id: result.member.id,
-        userId: result.workosUser.id,
-        fullName: result.member.fullName,
-        email: result.member.email,
-        status: "active",
-      }),
-      organization: organizationSummarySchema.parse({
-        id: result.organization.id,
-        legalName: result.organization.legalName,
-        tradeName: result.organization.tradeName,
-        legalIdentifier: result.organization.legalIdentifier,
-        openingDate: null,
-        taxRegime: null,
-        primaryCnae: null,
-        stateRegistration: null,
-        municipalRegistration: null,
-        onboardingData: { company_profile: null },
-        onboardingStatus: "pending",
-      }),
-      workosOrganizationId: result.organization.workosOrganizationId,
-      workosUserId: result.workosUser.id,
-    });
   } catch (error) {
     Sentry.captureException(error);
-
-    throw new HTTPException(400, {
-      message: "Não foi possível criar o ambiente inicial com os dados informados.",
-    });
+    throw error;
   }
+
+  return c.json({
+    member: organizationMemberSummarySchema.parse({
+      id: result.member.id,
+      userId: result.workosUser.id,
+      fullName: result.member.fullName,
+      email: result.member.email,
+      status: "active",
+    }),
+    organization: organizationSummarySchema.parse({
+      id: result.organization.id,
+      legalName: result.organization.legalName,
+      tradeName: result.organization.tradeName,
+      legalIdentifier: result.organization.legalIdentifier,
+      openingDate: null,
+      taxRegime: null,
+      primaryCnae: null,
+      stateRegistration: null,
+      municipalRegistration: null,
+      onboardingData: { company_profile: null },
+      onboardingStatus: "pending",
+    }),
+    workosOrganizationId: result.organization.workosOrganizationId,
+    workosUserId: result.workosUser.id,
+  });
 });
 
 bootstrapRoutes.get("/auth/session-context", async (c) => {

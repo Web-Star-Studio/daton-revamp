@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { decodeJwt, EncryptJWT, createRemoteJWKSet, jwtDecrypt, jwtVerify, type JWTPayload } from "jose";
 import {
   WorkOS,
@@ -72,6 +72,8 @@ export type BootstrapOrganizationResult = {
 };
 
 const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
+const sessionKeyDerivationSalt = textEncoder.encode("daton.session.v1");
+const sessionKeyDerivationInfo = textEncoder.encode("daton/session-encryption");
 
 const getWorkOsJwks = (clientId: string) => {
   const cached = jwksCache.get(clientId);
@@ -88,8 +90,27 @@ const getWorkOsJwks = (clientId: string) => {
   return jwks;
 };
 
-const getSessionEncryptionKey = async (secret: string) =>
-  new Uint8Array(await crypto.subtle.digest("SHA-256", textEncoder.encode(secret)));
+const getSessionEncryptionKey = async (secret: string) => {
+  const importedKey = await crypto.subtle.importKey(
+    "raw",
+    textEncoder.encode(secret),
+    "HKDF",
+    false,
+    ["deriveBits"],
+  );
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: sessionKeyDerivationSalt,
+      info: sessionKeyDerivationInfo,
+    },
+    importedKey,
+    256,
+  );
+
+  return new Uint8Array(derivedBits);
+};
 
 const assertAccessTokenClaims = (payload: JWTPayload): WorkOsAccessTokenClaims => {
   const subject = typeof payload.sub === "string" ? payload.sub : null;
@@ -257,8 +278,10 @@ export const findPrimaryMembership = async (
 };
 
 export const countActiveMemberships = async (db: DatonDb, userId: string) => {
-  const memberships = await db
-    .select({ id: organizationMembers.id })
+  const [result] = await db
+    .select({
+      count: sql<number>`count(${organizationMembers.id})`,
+    })
     .from(organizationMembers)
     .where(
       and(
@@ -267,7 +290,7 @@ export const countActiveMemberships = async (db: DatonDb, userId: string) => {
       ),
     );
 
-  return memberships.length;
+  return Number(result?.count ?? 0);
 };
 
 export const formatWorkOsUserName = (user: Pick<User, "firstName" | "lastName" | "email">) => {
@@ -450,12 +473,14 @@ export const bootstrapOrganizationWithWorkOs = async (
     const cleanupErrors = await cleanupWorkOsBootstrap(workos, created);
 
     if (cleanupErrors.length > 0) {
+      console.error("Failed to clean up WorkOS bootstrap resources.", cleanupErrors);
+
       if (error instanceof Error) {
         (error as Error & { cause?: unknown }).cause = cleanupErrors;
       } else {
-        const aggregateError = new Error("Failed to roll back WorkOS bootstrap resources.");
+        const aggregateError = new Error("WorkOS bootstrap failed and cleanup also reported errors.");
         (aggregateError as Error & { cause?: unknown }).cause = cleanupErrors;
-        console.error(aggregateError);
+        throw aggregateError;
       }
     }
 

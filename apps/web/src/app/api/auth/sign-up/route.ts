@@ -8,6 +8,7 @@ import {
 import { createBootstrapOrganizationSchema } from "@daton/contracts";
 
 import {
+  clearDatonSessionCookie,
   authenticateBrowserPassword,
   fetchSessionContext,
   getDatonSessionFromCookieStore,
@@ -52,6 +53,18 @@ export async function POST(request: Request) {
     const input = parseBootstrapInput.parse(await request.json());
     const currentSession = await getDatonSessionFromCookieStore();
     const refreshedSession = await refreshDatonSessionIfNeeded(currentSession, request.headers);
+
+    if (currentSession && !refreshedSession.payload) {
+      const response = NextResponse.json(
+        {
+          message: "Autenticação obrigatória.",
+        },
+        { status: 401 },
+      );
+      clearDatonSessionCookie(response);
+      return response;
+    }
+
     const upstreamHeaders = new Headers({
       "content-type": "application/json",
     });

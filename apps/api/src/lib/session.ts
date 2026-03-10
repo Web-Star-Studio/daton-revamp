@@ -59,6 +59,8 @@ export type SessionContext = {
   workosOrganizationId: string | null;
 };
 
+const GLOBAL_ACCESS_ROLES: Role[] = ["owner", "admin", "hr_admin", "document_controller"];
+
 const extractBearerToken = (authorizationHeader: string | null) => {
   if (!authorizationHeader) {
     return null;
@@ -90,7 +92,9 @@ const buildDetachedSessionSnapshot = async (
       effectiveRoles: [],
       branchScope: [],
     };
-  } catch {
+  } catch (error) {
+    console.error("Fetching detached WorkOS session user failed.", error);
+    Sentry.captureException(error);
     return null;
   }
 };
@@ -186,9 +190,7 @@ export const resolveSessionContext = async (
     .map((assignment) => assignment.branchScopeId)
     .filter((branchId): branchId is string => Boolean(branchId));
 
-  const hasGlobalAccess = effectiveRoles.some((role) =>
-    ["owner", "admin", "hr_admin", "document_controller"].includes(role),
-  );
+  const hasGlobalAccess = effectiveRoles.some((role) => GLOBAL_ACCESS_ROLES.includes(role));
 
   const branchScope = hasGlobalAccess
     ? (

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
+  AuthSessionError,
   clearDatonSessionCookie,
   fetchServerSession,
   getDatonSessionFromCookieStore,
@@ -11,6 +12,21 @@ import {
 export async function GET(request: Request) {
   const currentSession = await getDatonSessionFromCookieStore();
   const refreshedSession = await refreshDatonSessionIfNeeded(currentSession, request.headers);
+
+  if (refreshedSession.error) {
+    const response = NextResponse.json(
+      {
+        message: refreshedSession.error.message,
+      },
+      { status: refreshedSession.error.status },
+    );
+
+    if (currentSession && refreshedSession.error.clearSession) {
+      clearDatonSessionCookie(response);
+    }
+
+    return response;
+  }
 
   if (!refreshedSession.payload) {
     const response = NextResponse.json(
@@ -36,14 +52,21 @@ export async function GET(request: Request) {
     }
 
     return response;
-  } catch {
+  } catch (error) {
     const response = NextResponse.json(
       {
-        message: "Autenticação obrigatória.",
+        message:
+          error instanceof AuthSessionError ? error.message : "Não foi possível carregar a sessão agora.",
       },
-      { status: 401 },
+      {
+        status: error instanceof AuthSessionError ? error.status : 503,
+      },
     );
-    clearDatonSessionCookie(response);
+
+    if (error instanceof AuthSessionError && error.clearSession) {
+      clearDatonSessionCookie(response);
+    }
+
     return response;
   }
 }

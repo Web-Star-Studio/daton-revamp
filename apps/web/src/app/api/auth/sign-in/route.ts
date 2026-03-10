@@ -10,6 +10,7 @@ import {
   authenticateBrowserPassword,
   fetchSessionContext,
   getWorkOsManagementEnv,
+  isWorkOsAuthenticationFailure,
   setDatonSessionCookie,
 } from "@/lib/auth-session";
 
@@ -41,18 +42,16 @@ export async function POST(request: Request) {
 
     return response;
   } catch (error) {
-    const message =
-      error instanceof Error &&
-      (error.message.toLowerCase().includes("invalid") ||
-        error.message.toLowerCase().includes("password"))
-        ? "E-mail ou senha inválidos."
-        : "Não foi possível entrar no ambiente agora.";
+    const isAuthError = isWorkOsAuthenticationFailure(error);
+    const message = isAuthError
+      ? "E-mail ou senha inválidos."
+      : "Não foi possível entrar no ambiente agora.";
 
     return NextResponse.json(
       {
         message,
       },
-      { status: message === "E-mail ou senha inválidos." ? 401 : 500 },
+      { status: isAuthError ? 401 : 500 },
     );
   }
 }

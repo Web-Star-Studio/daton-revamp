@@ -87,6 +87,21 @@ export async function proxyApiRequest(request: Request) {
       .find(Boolean) ??
     null;
 
+  if (!refreshedSession.payload && refreshedSession.error) {
+    const response = NextResponse.json(
+      {
+        message: refreshedSession.error.message,
+      },
+      { status: refreshedSession.error.status },
+    );
+
+    if (currentSession && refreshedSession.error.clearSession) {
+      clearDatonSessionCookie(response);
+    }
+
+    return response;
+  }
+
   upstreamHeaders.delete("cookie");
 
   if (refreshedSession.payload?.accessToken) {
@@ -157,8 +172,6 @@ export async function proxyApiRequest(request: Request) {
 
   if (refreshedSession.payload && refreshedSession.rotated) {
     await setDatonSessionCookie(response, refreshedSession.payload);
-  } else if (!refreshedSession.payload && currentSession) {
-    clearDatonSessionCookie(response);
   }
 
   return response;

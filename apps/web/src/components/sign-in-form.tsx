@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
@@ -26,7 +25,6 @@ const isInvalidCredentialsError = (value: unknown) => {
 };
 
 export function SignInForm() {
-  const router = useRouter();
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,8 +55,7 @@ export function SignInForm() {
               throw result.error;
             }
 
-            router.replace("/app");
-            router.refresh();
+            window.location.assign("/app");
           } catch (signInError) {
             if (isInvalidCredentialsError(signInError)) {
               setError("E-mail ou senha inválidos.");

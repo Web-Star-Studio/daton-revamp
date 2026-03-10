@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 
 import { createDatonAuth, expandLocalOriginAliases } from "@daton/auth";
-import { createNodeDb, type DatonDb } from "@daton/db";
+import { createNodeDbServices } from "@daton/db";
 
 import { parseServerEnv } from "./env";
 import { getSessionSnapshot } from "./lib/session";
@@ -16,18 +16,6 @@ import { organizationRoutes } from "./routes/organization";
 import type { AppBindings } from "./types";
 
 const app = new Hono<AppBindings>();
-type CachedDb = {
-  databaseUrl: string;
-  db: DatonDb;
-};
-type CachedAuth = {
-  auth: ReturnType<typeof createDatonAuth>;
-  cacheKey: string;
-  databaseUrl: string;
-};
-
-let cachedDb: CachedDb | null = null;
-let cachedAuth: CachedAuth | null = null;
 
 const readServerEnv = (bindings: AppBindings["Bindings"]) =>
   parseServerEnv({
@@ -59,38 +47,13 @@ const getServices = (bindings: AppBindings["Bindings"]) => {
     );
   }
 
-  const cacheKey = JSON.stringify({
-    authSecret: env.BETTER_AUTH_SECRET,
-    authUrl: env.BETTER_AUTH_URL,
-    appUrl: env.NEXT_PUBLIC_APP_URL,
-    apiUrl: env.NEXT_PUBLIC_API_URL,
-    corsOrigin: env.CORS_ORIGIN,
-    cookieDomain: env.COOKIE_DOMAIN ?? "",
-    passwordHashIterations: env.auth.BETTER_AUTH_PASSWORD_HASH_ITERATIONS ?? "",
-  });
-
-  if (!cachedDb || cachedDb.databaseUrl !== databaseUrl) {
-    cachedDb = {
-      databaseUrl,
-      db: createNodeDb(databaseUrl),
-    };
-  }
-
-  if (
-    !cachedAuth ||
-    cachedAuth.cacheKey !== cacheKey ||
-    cachedAuth.databaseUrl !== databaseUrl
-  ) {
-    cachedAuth = {
-      auth: createDatonAuth(cachedDb.db, env.auth),
-      cacheKey,
-      databaseUrl,
-    };
-  }
+  const { client, db } = createNodeDbServices(databaseUrl);
+  const auth = createDatonAuth(db, env.auth);
 
   return {
-    auth: cachedAuth.auth,
-    db: cachedDb.db,
+    auth,
+    client,
+    db,
     env,
   };
 };
@@ -121,7 +84,11 @@ app.use("/api/*", async (c, next) => {
   c.set("db", services.db);
   c.set("auth", services.auth);
 
-  await next();
+  try {
+    await next();
+  } finally {
+    await services.client.end({ timeout: 0 });
+  }
 
   setRequestSentryContext({
     method: c.req.method,

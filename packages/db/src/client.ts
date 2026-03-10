@@ -9,9 +9,16 @@ export const schema = {
   ...domainSchema,
 };
 
-export const createNodeDb = (connectionString: string) => {
+export const createNodeDbServices = (connectionString: string) => {
   const client = postgres(connectionString, { prepare: false });
-  return drizzle(client, { schema });
+  const db = drizzle(client, { schema });
+
+  return {
+    client,
+    db,
+  };
 };
+
+export const createNodeDb = (connectionString: string) => createNodeDbServices(connectionString).db;
 
 export type DatonDb = ReturnType<typeof createNodeDb>;

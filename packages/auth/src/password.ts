@@ -1,6 +1,7 @@
-import { pbkdf2Async } from "@noble/hashes/pbkdf2.js";
+import { pbkdf2 as nodePbkdf2 } from "node:crypto";
+import { promisify } from "node:util";
+
 import { scryptAsync } from "@noble/hashes/scrypt.js";
-import { sha256 } from "@noble/hashes/sha2.js";
 
 const PASSWORD_HASH_ALGORITHM = "pbkdf2-sha256";
 const DEFAULT_PASSWORD_HASH_ITERATIONS = 150_000;
@@ -14,6 +15,7 @@ const LEGACY_SCRYPT_CONFIG = {
 } as const;
 
 const encoder = new TextEncoder();
+const pbkdf2Async = promisify(nodePbkdf2);
 
 const normalizePassword = (password: string) => password.normalize("NFKC");
 
@@ -62,10 +64,15 @@ const timingSafeEqual = (left: Uint8Array, right: Uint8Array) => {
 };
 
 const derivePbkdf2Key = async (password: string, salt: Uint8Array, iterations: number) =>
-  pbkdf2Async(sha256, encoder.encode(normalizePassword(password)), salt, {
-    c: iterations,
-    dkLen: DERIVED_KEY_BYTES,
-  });
+  new Uint8Array(
+    await pbkdf2Async(
+      encoder.encode(normalizePassword(password)),
+      salt,
+      iterations,
+      DERIVED_KEY_BYTES,
+      "sha256",
+    ),
+  );
 
 const verifyLegacyScryptHash = async (password: string, hash: string) => {
   const [salt, key] = hash.split(":");
@@ -121,11 +128,16 @@ export const verifyPassword = async ({
   hash: string;
   password: string;
 }) => {
-  try {
-    if (isLegacyScryptHash(hash)) {
-      return verifyLegacyScryptHash(password, hash);
-    }
+  if (isLegacyScryptHash(hash)) {
+    console.error(
+      "Legacy scrypt hash detected. Scrypt verification is not supported on " +
+        "Cloudflare Workers due to memory limits. Run the migration script: " +
+        "DATABASE_URL='...' npx tsx scripts/migrate-password-hash.mts <email> <password>",
+    );
+    return false;
+  }
 
+  try {
     const parsedHash = parsePbkdf2Hash(hash);
 
     if (!parsedHash) {
@@ -134,7 +146,8 @@ export const verifyPassword = async ({
 
     const derivedKey = await derivePbkdf2Key(password, parsedHash.salt, parsedHash.iterations);
     return timingSafeEqual(derivedKey, parsedHash.key);
-  } catch {
+  } catch (error) {
+    console.error("Password verification failed:", error);
     return false;
   }
 };

@@ -1,3 +1,11 @@
 packages:
   - apps/*
   - packages/*
+
+onlyBuiltDependencies:
+  - '@prisma/engines'
+  - '@sentry/cli'
+  - esbuild
+  - prisma
+  - sharp
+  - workerd

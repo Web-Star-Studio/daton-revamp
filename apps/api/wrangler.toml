@@ -4,10 +4,11 @@ compatibility_date = "2026-03-07"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-BETTER_AUTH_URL = "https://daton-api.design-b95.workers.dev"
+BETTER_AUTH_URL = "https://daton-web.design-b95.workers.dev"
 NEXT_PUBLIC_APP_URL = "https://daton-web.design-b95.workers.dev"
 NEXT_PUBLIC_API_URL = "https://daton-api.design-b95.workers.dev"
 CORS_ORIGIN = "https://daton-web.design-b95.workers.dev"
+BETTER_AUTH_PASSWORD_HASH_ITERATIONS = "100000"
 
 [[hyperdrive]]
 binding = "HYPERDRIVE"

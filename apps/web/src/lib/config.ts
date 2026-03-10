@@ -1,4 +1,4 @@
-const localApiBaseUrl = "http://127.0.0.1:8787";
+const localApiBaseUrl = "http://127.0.0.1:3000";
 const localInternalApiBaseUrl = "http://127.0.0.1:8787";
 const loopbackHosts = new Set(["127.0.0.1", "localhost"]);
 

@@ -6,6 +6,25 @@ import { startTransition, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
 
+const isInvalidCredentialsError = (value: unknown) => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const status = "status" in value ? value.status : undefined;
+  const code = "code" in value ? value.code : undefined;
+  const message =
+    "message" in value && typeof value.message === "string" ? value.message : "";
+
+  return (
+    status === 400 ||
+    status === 401 ||
+    code === "INVALID_EMAIL_OR_PASSWORD" ||
+    message.toLowerCase().includes("invalid email or password") ||
+    message.toLowerCase().includes("invalid password")
+  );
+};
+
 export function SignInForm() {
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
@@ -31,17 +50,21 @@ export function SignInForm() {
             });
 
             if (result?.error) {
-              throw new Error("E-mail ou senha inválidos.");
+              if (isInvalidCredentialsError(result.error)) {
+                throw result.error;
+              }
+
+              throw result.error;
             }
 
             router.replace("/app");
             router.refresh();
           } catch (signInError) {
-            setError(
-              signInError instanceof Error
-                ? signInError.message
-                : "Não foi possível entrar com essas credenciais.",
-            );
+            if (isInvalidCredentialsError(signInError)) {
+              setError("E-mail ou senha inválidos.");
+            } else {
+              setError("Não foi possível entrar no ambiente agora.");
+            }
           } finally {
             setIsPending(false);
           }

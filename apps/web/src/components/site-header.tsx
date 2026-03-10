@@ -10,8 +10,8 @@ export function SiteHeader() {
         <Link href="/#platform">Plataforma</Link>
         <Link href="/#workflow">Fluxo</Link>
         <Link href="/#modules">Módulos</Link>
-        <Link href="/sign-in">Entrar</Link>
-        <Link className="button" href="/create-organization">
+        <Link href="/auth?mode=sign-in">Entrar</Link>
+        <Link className="button" href="/auth?mode=sign-up">
           Criar organização
         </Link>
       </nav>

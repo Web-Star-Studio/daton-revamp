@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   env: {
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL ?? "",
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL ?? "",
+    INTERNAL_API_URL: process.env.INTERNAL_API_URL ?? "",
     SENTRY_ENVIRONMENT: getWebSentryEnvironment(),
     SENTRY_RELEASE: sentryRelease ?? "",
     SENTRY_TRACES_SAMPLE_RATE: String(getWebSentryTracesSampleRate()),

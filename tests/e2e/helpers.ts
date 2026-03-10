@@ -4,10 +4,12 @@ import postgres from "postgres";
 
 const databaseUrl = "postgres://postgres:postgres@127.0.0.1:5432/daton";
 
-export const createUniqueId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+export const createUniqueId = (prefix: string) =>
+  `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const createValidCnpj = (seed: string) => {
-  const digits = seed.replace(/\D/g, "").padEnd(12, "0").slice(0, 12) || "123456780001";
+  const digits =
+    seed.replace(/\D/g, "").padEnd(12, "0").slice(0, 12) || "123456780001";
 
   const sanitizedBase = /^(\d)\1{11}$/.test(digits) ? "123456780001" : digits;
 
@@ -25,40 +27,38 @@ const createValidCnpj = (seed: string) => {
   };
 
   const firstCheckDigit = calculateCheckDigit(sanitizedBase, 5);
-  const secondCheckDigit = calculateCheckDigit(`${sanitizedBase}${firstCheckDigit}`, 6);
+  const secondCheckDigit = calculateCheckDigit(
+    `${sanitizedBase}${firstCheckDigit}`,
+    6,
+  );
 
   return `${sanitizedBase}${firstCheckDigit}${secondCheckDigit}`;
 };
 
-export const createWorkspace = async (
-  page: Page,
-  suffix: string,
-) => {
+export const createWorkspace = async (page: Page, suffix: string) => {
   const legalName = `Daton Test ${suffix}`;
   const tradeName = `Daton ${suffix}`;
   const legalIdentifier = createValidCnpj(`${suffix}01`);
   const adminFullName = `Operador ${suffix}`;
   const adminEmail = `operator.${suffix}@example.com`;
   const password = `Daton-${suffix}-secure`;
-  const hqName = `Matriz ${suffix}`;
-  const hqCode = `HQ${suffix.slice(-4).toUpperCase()}`;
-  const hqLegalIdentifier = legalIdentifier;
 
-  await page.goto("/create-organization");
+  await page.goto("/auth?mode=sign-up");
   await page.getByLabel("Razão social").fill(legalName);
   await page.getByLabel("Nome fantasia").fill(tradeName);
-  await page.getByLabel("CNPJ", { exact: true }).fill(formatCnpj(legalIdentifier));
+  await page
+    .getByLabel("CNPJ", { exact: true })
+    .fill(formatCnpj(legalIdentifier));
   await page.getByLabel("Nome completo do administrador").fill(adminFullName);
   await page.getByLabel("E-mail do administrador").fill(adminEmail);
   await page.getByLabel("Senha").fill(password);
-  await page.getByLabel("Nome da matriz").fill(hqName);
-  await page.getByLabel("Código da matriz").fill(hqCode);
+  await page.getByLabel(/declaro que li, entendi e concordo/i).check();
   await page.getByRole("button", { name: "Criar ambiente Daton" }).click();
 
   await page.waitForURL("**/onboarding/organization");
   await expect(
     page.getByRole("heading", {
-      name: new RegExp(`Estruture ${tradeName}`),
+      name: "Perfil operacional",
     }),
   ).toBeVisible();
 
@@ -69,9 +69,6 @@ export const createWorkspace = async (
     adminFullName,
     adminEmail,
     password,
-    hqName,
-    hqCode,
-    hqLegalIdentifier,
   };
 };
 
@@ -83,46 +80,63 @@ export const completeOrganizationOnboarding = async (
   }>,
 ) => {
   await page.selectOption("#sector", "other");
-  await page.getByLabel("Qual é o setor?").fill(
-    overrides?.customSector ?? "Serviços especializados",
-  );
+  await page
+    .getByLabel("Qual é o setor?")
+    .fill(overrides?.customSector ?? "Serviços especializados");
   await page.getByText("Média").click();
-  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.getByRole("button", { name: "Próximo Passo" }).click();
 
   await page.getByText("Redução de emissões").click();
   await page.getByText("Compliance").click();
   await page.getByText("Avançado").click();
-  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.getByRole("button", { name: "Próximo Passo" }).click();
 
   await page.getByLabel("Desafios atuais").fill("Padronizar indicadores ESG");
   await page.getByRole("button", { name: "Adicionar" }).click();
-  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.getByRole("button", { name: "Próximo Passo" }).click();
 
-  await page.getByLabel("Data de abertura").fill(
-    overrides?.openingDate ?? "2020-01-15",
-  );
+  await page
+    .getByLabel("Data de abertura")
+    .fill(overrides?.openingDate ?? "2020-01-15");
   await page.getByLabel("Regime tributário").fill("Lucro Real");
   await page.getByLabel("CNAE principal").fill("62.01-5-01");
   await page.getByLabel("Inscrição estadual").fill("123456789");
   await page.getByLabel("Inscrição municipal").fill("987654321");
-  await page.getByRole("button", { name: "Continuar" }).click();
+  await page.getByRole("button", { name: "Próximo Passo" }).click();
 
-  await page.getByRole("button", { name: "Concluir e entrar no app" }).click();
-  await page.waitForURL("**/app/settings/organization");
+  await expect(page.getByRole("heading", { name: "Revisão" })).toBeVisible();
   await expect(
     page.getByText(overrides?.customSector ?? "Serviços especializados"),
   ).toBeVisible();
+
+  await page.getByRole("button", { name: "Concluir onboarding" }).click();
+  await page.waitForURL("**/onboarding/organization");
+  await expect(
+    page.getByRole("heading", { name: "Revise os dados antes de seguir" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(overrides?.customSector ?? "Serviços especializados"),
+  ).toBeVisible();
+
+  await page.getByRole("link", { name: "Entrar no app" }).click();
+  await page.waitForURL("**/app/settings/organization");
 };
 
-export const createDetachedAuthUser = async (request: APIRequestContext, suffix: string) => {
+export const createDetachedAuthUser = async (
+  request: APIRequestContext,
+  suffix: string,
+) => {
   const email = `manager.${suffix}@example.com`;
-  const response = await request.post("http://127.0.0.1:8787/api/auth/sign-up/email", {
-    data: {
-      name: `Gestor ${suffix}`,
-      email,
-      password: `Manager-${suffix}-secure`,
+  const response = await request.post(
+    "http://127.0.0.1:8787/api/auth/sign-up/email",
+    {
+      data: {
+        name: `Gestor ${suffix}`,
+        email,
+        password: `Manager-${suffix}-secure`,
+      },
     },
-  });
+  );
 
   expect(response.ok()).toBeTruthy();
   const payload = (await response.json()) as {
@@ -214,6 +228,8 @@ export const setOrganizationOnboardingStatus = async (input: {
 
 export const expectRedirectToSignIn = async (page: Page) => {
   await page.goto("/app");
-  await page.waitForURL("**/sign-in");
-  await expect(page.getByRole("heading", { name: /Bem-vindo ao Daton/i })).toBeVisible();
+  await page.waitForURL("**/auth?mode=sign-in");
+  await expect(
+    page.getByRole("heading", { name: /Bem-vindo ao Daton/i }),
+  ).toBeVisible();
 };

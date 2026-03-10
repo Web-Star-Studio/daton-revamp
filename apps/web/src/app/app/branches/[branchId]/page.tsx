@@ -88,7 +88,7 @@ export default async function BranchDetailPage({
               <div>
                 <dt>Natureza da unidade</dt>
                 <dd>
-                  {branch.isHeadquarters ? "Matriz" : "Filial operacional"}
+                  {branch.isHeadquarters ? "Headquarters" : "Filial operacional"}
                 </dd>
               </div>
               <div>

@@ -1,17 +1,19 @@
 import { createNodeDb } from "../../db/src/index";
+import { loadLocalDevelopmentEnv } from "../../db/src/load-local-development-env";
 
 import { createDatonAuth } from "./auth";
 import { parseAuthEnv } from "./env";
 
-const databaseUrl = process.env.DATABASE_URL;
+const env = loadLocalDevelopmentEnv(process.env);
+const databaseUrl = env.DATABASE_URL;
 
 if (!databaseUrl) {
   throw new Error("DATABASE_URL is required for Better Auth CLI commands.");
 }
 
-const env = parseAuthEnv(process.env);
+const authEnv = parseAuthEnv(env);
 const db = createNodeDb(databaseUrl);
 
-export const auth = createDatonAuth(db, env);
+export const auth = createDatonAuth(db, authEnv);
 
 export default auth;

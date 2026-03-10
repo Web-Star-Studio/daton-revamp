@@ -5,12 +5,10 @@ import { ZodError } from "zod";
 
 import {
   createBootstrapOrganizationSchema,
-  branchSummarySchema,
   organizationMemberSummarySchema,
   organizationSummarySchema,
 } from "@daton/contracts";
 import {
-  branches,
   memberRoleAssignments,
   organizationMembers,
   organizations,
@@ -57,12 +55,6 @@ bootstrapRoutes.post("/bootstrap/organization", async (c) => {
 
   const input = await parseBootstrapInput(c);
   const db = c.get("db");
-
-  if (input.headquarters.legalIdentifier !== input.legalIdentifier) {
-    throw new HTTPException(400, {
-      message: "No cadastro inicial, o CNPJ da organização e o da matriz devem ser iguais.",
-    });
-  }
 
   const [existingOrganization] = await db
       .select({ id: organizations.id })
@@ -136,22 +128,6 @@ bootstrapRoutes.post("/bootstrap/organization", async (c) => {
         },
       ]);
 
-      const [headquarters] = await tx
-        .insert(branches)
-        .values({
-          organizationId: organization.id,
-          name: input.headquarters.name,
-          code: input.headquarters.code,
-          legalIdentifier: input.legalIdentifier,
-          isHeadquarters: true,
-          status: "active",
-        })
-        .returning();
-
-      if (!headquarters) {
-        throw new HTTPException(500, { message: "Não foi possível criar a filial matriz." });
-      }
-
       await recordAuditEvent(tx, {
         action: "organization.bootstrap",
         entityType: "organization",
@@ -159,26 +135,18 @@ bootstrapRoutes.post("/bootstrap/organization", async (c) => {
         organizationId: organization.id,
         actorUserId: user.id,
         actorMemberId: member.id,
-        metadata: {
-          branchId: headquarters.id,
-          branchCode: headquarters.code,
-        },
+        metadata: {},
       });
 
       return {
         organization,
         member,
-        headquarters,
       };
     });
 
   const response = c.json({
     organization: organizationSummarySchema.parse(result.organization),
     member: organizationMemberSummarySchema.parse(result.member),
-    branch: branchSummarySchema.parse({
-      ...result.headquarters,
-      managerMemberId: null,
-    }),
   });
 
   authResult.headers.forEach((value, key) => {

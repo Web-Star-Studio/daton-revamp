@@ -63,20 +63,13 @@ export function SignInForm() {
           type="password"
         />
       </div>
-      <label className="checkbox">
-        <input id="terms" name="terms" type="checkbox" />
-        <span>
-          Ao marcar esta caixa, declaro que li, entendi e concordo com os Termos de Serviço,
-          a Política de Privacidade, o EULA e a Política de Uso Aceitável do Daton.
-        </span>
-      </label>
       {error ? <p className="form-error">{error}</p> : null}
       <button className="button" disabled={isPending} type="submit">
         {isPending ? "Abrindo ambiente…" : "Entrar no ambiente"}
         <span aria-hidden="true" style={{ marginLeft: "0.35rem" }}>→</span>
       </button>
       <p className="form-note">
-        Precisa criar um ambiente? <Link href="/create-organization">Criar uma organização</Link>
+        Precisa criar um ambiente? <Link href="/auth?mode=sign-up">Criar uma organização</Link>
       </p>
     </form>
   );

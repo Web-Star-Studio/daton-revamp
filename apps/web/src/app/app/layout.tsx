@@ -17,11 +17,11 @@ export default async function WorkspaceLayout({
   const session = await requireSession();
 
   if (!session) {
-    return <AuthRedirect href="/sign-in" />;
+    return <AuthRedirect href="/auth?mode=sign-in" />;
   }
 
   if (!session.organization) {
-    redirect("/create-organization");
+    redirect("/auth?mode=sign-up");
   }
 
   if (session.organization.onboardingStatus !== "completed") {

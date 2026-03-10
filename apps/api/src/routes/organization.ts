@@ -5,24 +5,38 @@ import { HTTPException } from "hono/http-exception";
 import { ZodError } from "zod";
 
 import {
-  organizationSummarySchema,
   createCreateDepartmentSchema,
+  createCreateEmployeeSchema,
+  createCreatePositionSchema,
   createUpdateDepartmentSchema,
+  createUpdateEmployeeSchema,
+  createUpdatePositionSchema,
   departmentIdSchema,
+  employeeIdSchema,
+  employeeSummarySchema,
+  organizationSummarySchema,
+  positionIdSchema,
+  positionSummarySchema,
   updateOrganizationSchema,
   type AuditAction,
   type CreateDepartmentInput,
+  type CreateEmployeeInput,
+  type CreatePositionInput,
   type NotificationLevel,
-  type UpdateOrganizationInput,
   type UpdateDepartmentInput,
+  type UpdateEmployeeInput,
+  type UpdateOrganizationInput,
+  type UpdatePositionInput,
 } from "@daton/contracts";
 import {
   auditEvents,
   branches,
+  employees,
   departments,
   departmentBranchAssignments,
   organizationMembers,
   organizations,
+  positions,
 } from "@daton/db";
 
 import { recordAuditEvent } from "../lib/audit";
@@ -34,6 +48,40 @@ const normalizeEmpty = (value?: string | null) => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 };
+
+const normalizeNumber = (value?: number | null) =>
+  typeof value === "number" && Number.isFinite(value) ? String(value) : null;
+
+const parseStoredNumber = (value: unknown) => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+};
+
+const serializeDateValue = (value: string | Date | null | undefined) => {
+  if (!value) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return value;
+};
+
+const serializeTimestampValue = (value: string | Date) =>
+  value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+
+const normalizeStringArray = (values: string[]) =>
+  values.map((value) => value.trim()).filter(Boolean);
 
 const normalizeOrganizationProfile = (
   input: UpdateOrganizationInput["companyProfile"],
@@ -70,6 +118,70 @@ const parseUpdateDepartmentInput = async (
 ): Promise<UpdateDepartmentInput> => {
   try {
     return createUpdateDepartmentSchema().parse(await c.req.json());
+  } catch (error) {
+    if (error instanceof ZodError) {
+      throw new HTTPException(400, {
+        message: error.issues[0]?.message ?? "Dados inválidos.",
+      });
+    }
+
+    throw error;
+  }
+};
+
+const parseCreateEmployeeInput = async (
+  c: any,
+): Promise<CreateEmployeeInput> => {
+  try {
+    return createCreateEmployeeSchema().parse(await c.req.json());
+  } catch (error) {
+    if (error instanceof ZodError) {
+      throw new HTTPException(400, {
+        message: error.issues[0]?.message ?? "Dados inválidos.",
+      });
+    }
+
+    throw error;
+  }
+};
+
+const parseUpdateEmployeeInput = async (
+  c: any,
+): Promise<UpdateEmployeeInput> => {
+  try {
+    return createUpdateEmployeeSchema().parse(await c.req.json());
+  } catch (error) {
+    if (error instanceof ZodError) {
+      throw new HTTPException(400, {
+        message: error.issues[0]?.message ?? "Dados inválidos.",
+      });
+    }
+
+    throw error;
+  }
+};
+
+const parseCreatePositionInput = async (
+  c: any,
+): Promise<CreatePositionInput> => {
+  try {
+    return createCreatePositionSchema().parse(await c.req.json());
+  } catch (error) {
+    if (error instanceof ZodError) {
+      throw new HTTPException(400, {
+        message: error.issues[0]?.message ?? "Dados inválidos.",
+      });
+    }
+
+    throw error;
+  }
+};
+
+const parseUpdatePositionInput = async (
+  c: any,
+): Promise<UpdatePositionInput> => {
+  try {
+    return createUpdatePositionSchema().parse(await c.req.json());
   } catch (error) {
     if (error instanceof ZodError) {
       throw new HTTPException(400, {
@@ -150,6 +262,242 @@ const assertManagerMember = async (
   }
 };
 
+const assertEmployee = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  employeeId: string | null,
+  message: string,
+) => {
+  if (!employeeId) {
+    return;
+  }
+
+  const [employee] = await db
+    .select({ id: employees.id })
+    .from(employees)
+    .where(
+      and(
+        eq(employees.id, employeeId),
+        eq(employees.organizationId, organizationId),
+      ),
+    )
+    .limit(1);
+
+  if (!employee) {
+    throw new HTTPException(400, { message });
+  }
+};
+
+const assertDepartment = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  departmentId: string | null,
+  message: string,
+) => {
+  if (!departmentId) {
+    return;
+  }
+
+  const [department] = await db
+    .select({ id: departments.id })
+    .from(departments)
+    .where(
+      and(
+        eq(departments.id, departmentId),
+        eq(departments.organizationId, organizationId),
+      ),
+    )
+    .limit(1);
+
+  if (!department) {
+    throw new HTTPException(400, { message });
+  }
+};
+
+const assertPosition = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  positionId: string | null,
+  message: string,
+) => {
+  if (!positionId) {
+    return null;
+  }
+
+  const [position] = await db
+    .select({
+      id: positions.id,
+      departmentId: positions.departmentId,
+    })
+    .from(positions)
+    .where(
+      and(
+        eq(positions.id, positionId),
+        eq(positions.organizationId, organizationId),
+      ),
+    )
+    .limit(1);
+
+  if (!position) {
+    throw new HTTPException(400, { message });
+  }
+
+  return position;
+};
+
+const assertBranch = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  branchId: string | null,
+  message: string,
+) => {
+  if (!branchId) {
+    return;
+  }
+
+  const [branch] = await db
+    .select({ id: branches.id })
+    .from(branches)
+    .where(
+      and(
+        eq(branches.id, branchId),
+        eq(branches.organizationId, organizationId),
+      ),
+    )
+    .limit(1);
+
+  if (!branch) {
+    throw new HTTPException(400, { message });
+  }
+};
+
+const assertDepartmentHierarchy = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  departmentId: string | null,
+  parentDepartmentId: string | null,
+) => {
+  if (!parentDepartmentId) {
+    return;
+  }
+
+  if (departmentId && departmentId === parentDepartmentId) {
+    throw new HTTPException(400, {
+      message: "Um departamento não pode ser pai de si mesmo.",
+    });
+  }
+
+  let cursor: string | null = parentDepartmentId;
+
+  while (cursor) {
+    const [parent] = await db
+      .select({
+        id: departments.id,
+        parentDepartmentId: departments.parentDepartmentId,
+      })
+      .from(departments)
+      .where(
+        and(
+          eq(departments.id, cursor),
+          eq(departments.organizationId, organizationId),
+        ),
+      )
+      .limit(1);
+
+    if (!parent) {
+      throw new HTTPException(400, {
+        message: "O departamento pai informado não existe nesta organização.",
+      });
+    }
+
+    if (departmentId && parent.id === departmentId) {
+      throw new HTTPException(400, {
+        message: "A hierarquia de departamentos criaria um ciclo.",
+      });
+    }
+
+    cursor = parent.parentDepartmentId;
+  }
+};
+
+const assertPositionHierarchy = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  positionId: string | null,
+  reportsToPositionId: string | null,
+) => {
+  if (!reportsToPositionId) {
+    return;
+  }
+
+  if (positionId && positionId === reportsToPositionId) {
+    throw new HTTPException(400, {
+      message: "Um cargo não pode reportar para si mesmo.",
+    });
+  }
+
+  let cursor: string | null = reportsToPositionId;
+
+  while (cursor) {
+    const [parent] = await db
+      .select({
+        id: positions.id,
+        reportsToPositionId: positions.reportsToPositionId,
+      })
+      .from(positions)
+      .where(
+        and(
+          eq(positions.id, cursor),
+          eq(positions.organizationId, organizationId),
+        ),
+      )
+      .limit(1);
+
+    if (!parent) {
+      throw new HTTPException(400, {
+        message: "O cargo superior informado não existe nesta organização.",
+      });
+    }
+
+    if (positionId && parent.id === positionId) {
+      throw new HTTPException(400, {
+        message: "A hierarquia de cargos criaria um ciclo.",
+      });
+    }
+
+    cursor = parent.reportsToPositionId;
+  }
+};
+
+const ensureEmployeeCodeUnique = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  employeeCode: string | null,
+  employeeId?: string,
+) => {
+  if (!employeeCode) {
+    return;
+  }
+
+  const [duplicate] = await db
+    .select({ id: employees.id })
+    .from(employees)
+    .where(
+      and(
+        eq(employees.organizationId, organizationId),
+        eq(employees.employeeCode, employeeCode),
+        employeeId ? ne(employees.id, employeeId) : undefined,
+      ),
+    )
+    .limit(1);
+
+  if (duplicate) {
+    throw new HTTPException(409, {
+      message: "O código do colaborador deve ser único dentro da organização.",
+    });
+  }
+};
+
 const ensureDepartmentBranches = async (
   db: AppDbExecutor,
   organizationId: string,
@@ -187,17 +535,19 @@ const serializeDepartment = async (db: AppDbExecutor, departmentId: string) => {
       id: departments.id,
       organizationId: departments.organizationId,
       name: departments.name,
+      description: departments.description,
+      parentDepartmentId: departments.parentDepartmentId,
+      managerEmployeeId: departments.managerEmployeeId,
+      managerMemberId: departments.managerMemberId,
       code: departments.code,
       status: departments.status,
-      managerMemberId: departments.managerMemberId,
-      managerName: organizationMembers.fullName,
+      budget: departments.budget,
+      costCenter: departments.costCenter,
       notes: departments.notes,
+      createdAt: departments.createdAt,
+      updatedAt: departments.updatedAt,
     })
     .from(departments)
-    .leftJoin(
-      organizationMembers,
-      eq(departments.managerMemberId, organizationMembers.id),
-    )
     .where(eq(departments.id, departmentId))
     .limit(1);
 
@@ -206,6 +556,53 @@ const serializeDepartment = async (db: AppDbExecutor, departmentId: string) => {
       message: "Departamento não encontrado.",
     });
   }
+
+  const [legacyManager, employeeManager, parentDepartment, employeeRows, subDepartmentRows] =
+    await Promise.all([
+      record.managerMemberId
+        ? db
+            .select({
+              fullName: organizationMembers.fullName,
+            })
+            .from(organizationMembers)
+            .where(eq(organizationMembers.id, record.managerMemberId))
+            .limit(1)
+            .then((rows) => rows[0] ?? null)
+        : Promise.resolve(null),
+      record.managerEmployeeId
+        ? db
+            .select({
+              id: employees.id,
+              fullName: employees.fullName,
+            })
+            .from(employees)
+            .where(eq(employees.id, record.managerEmployeeId))
+            .limit(1)
+            .then((rows) => rows[0] ?? null)
+        : Promise.resolve(null),
+      record.parentDepartmentId
+        ? db
+            .select({
+              id: departments.id,
+              name: departments.name,
+            })
+            .from(departments)
+            .where(eq(departments.id, record.parentDepartmentId))
+            .limit(1)
+            .then((rows) => rows[0] ?? null)
+        : Promise.resolve(null),
+      db
+        .select({ id: employees.id })
+        .from(employees)
+        .where(eq(employees.departmentId, departmentId)),
+      db
+        .select({
+          id: departments.id,
+          name: departments.name,
+        })
+        .from(departments)
+        .where(eq(departments.parentDepartmentId, departmentId)),
+    ]);
 
   const assignments = await db
     .select({
@@ -221,12 +618,226 @@ const serializeDepartment = async (db: AppDbExecutor, departmentId: string) => {
   );
 
   return {
-    ...record,
+    id: record.id,
+    organizationId: record.organizationId,
+    name: record.name,
+    description: record.description ?? null,
+    parentDepartmentId: record.parentDepartmentId ?? null,
+    managerEmployeeId: record.managerEmployeeId ?? null,
+    budget: parseStoredNumber(record.budget),
+    costCenter: record.costCenter ?? null,
+    code: record.code,
+    status: record.status,
+    managerMemberId: record.managerMemberId ?? null,
+    managerName: employeeManager?.fullName ?? legacyManager?.fullName ?? null,
     notes: record.notes ?? null,
-    managerName: record.managerName ?? null,
     branchIds: sortedAssignments.map((assignment) => assignment.branchId),
     branchNames: sortedAssignments.map((assignment) => assignment.branchName),
+    createdAt: serializeTimestampValue(record.createdAt),
+    updatedAt: serializeTimestampValue(record.updatedAt),
+    manager: employeeManager,
+    parentDepartment,
+    subDepartments: subDepartmentRows.sort((left, right) =>
+      left.name.localeCompare(right.name, "pt-BR"),
+    ),
+    employeeCount: employeeRows.length,
   };
+};
+
+const serializePosition = async (db: AppDbExecutor, positionId: string) => {
+  const [record] = await db
+    .select({
+      id: positions.id,
+      organizationId: positions.organizationId,
+      departmentId: positions.departmentId,
+      title: positions.title,
+      description: positions.description,
+      level: positions.level,
+      salaryRangeMin: positions.salaryRangeMin,
+      salaryRangeMax: positions.salaryRangeMax,
+      requirements: positions.requirements,
+      responsibilities: positions.responsibilities,
+      reportsToPositionId: positions.reportsToPositionId,
+      requiredEducationLevel: positions.requiredEducationLevel,
+      requiredExperienceYears: positions.requiredExperienceYears,
+      createdAt: positions.createdAt,
+      updatedAt: positions.updatedAt,
+    })
+    .from(positions)
+    .where(eq(positions.id, positionId))
+    .limit(1);
+
+  if (!record) {
+    throw new HTTPException(404, {
+      message: "Cargo não encontrado.",
+    });
+  }
+
+  const [department, reportsToPosition] = await Promise.all([
+    record.departmentId
+      ? db
+          .select({
+            id: departments.id,
+            name: departments.name,
+          })
+          .from(departments)
+          .where(eq(departments.id, record.departmentId))
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+      : Promise.resolve(null),
+    record.reportsToPositionId
+      ? db
+          .select({
+            id: positions.id,
+            title: positions.title,
+          })
+          .from(positions)
+          .where(eq(positions.id, record.reportsToPositionId))
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+      : Promise.resolve(null),
+  ]);
+
+  return positionSummarySchema.parse({
+    id: record.id,
+    organizationId: record.organizationId,
+    departmentId: record.departmentId ?? null,
+    title: record.title,
+    description: record.description ?? null,
+    level: record.level ?? null,
+    salaryRangeMin: parseStoredNumber(record.salaryRangeMin),
+    salaryRangeMax: parseStoredNumber(record.salaryRangeMax),
+    requirements: normalizeStringArray((record.requirements as string[] | null) ?? []),
+    responsibilities: normalizeStringArray(
+      (record.responsibilities as string[] | null) ?? [],
+    ),
+    reportsToPositionId: record.reportsToPositionId ?? null,
+    requiredEducationLevel: record.requiredEducationLevel ?? null,
+    requiredExperienceYears: record.requiredExperienceYears ?? null,
+    createdAt: serializeTimestampValue(record.createdAt),
+    updatedAt: serializeTimestampValue(record.updatedAt),
+    department,
+    reportsToPosition,
+  });
+};
+
+const serializeEmployee = async (db: AppDbExecutor, employeeId: string) => {
+  const [record] = await db
+    .select({
+      id: employees.id,
+      organizationId: employees.organizationId,
+      employeeCode: employees.employeeCode,
+      cpf: employees.cpf,
+      fullName: employees.fullName,
+      email: employees.email,
+      phone: employees.phone,
+      departmentId: employees.departmentId,
+      positionId: employees.positionId,
+      hireDate: employees.hireDate,
+      birthDate: employees.birthDate,
+      gender: employees.gender,
+      ethnicity: employees.ethnicity,
+      educationLevel: employees.educationLevel,
+      salary: employees.salary,
+      employmentType: employees.employmentType,
+      status: employees.status,
+      managerId: employees.managerId,
+      location: employees.location,
+      branchId: employees.branchId,
+      terminationDate: employees.terminationDate,
+      notes: employees.notes,
+      createdAt: employees.createdAt,
+      updatedAt: employees.updatedAt,
+    })
+    .from(employees)
+    .where(eq(employees.id, employeeId))
+    .limit(1);
+
+  if (!record) {
+    throw new HTTPException(404, {
+      message: "Colaborador não encontrado.",
+    });
+  }
+
+  const [department, position, manager, branch] = await Promise.all([
+    record.departmentId
+      ? db
+          .select({
+            id: departments.id,
+            name: departments.name,
+          })
+          .from(departments)
+          .where(eq(departments.id, record.departmentId))
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+      : Promise.resolve(null),
+    record.positionId
+      ? db
+          .select({
+            id: positions.id,
+            title: positions.title,
+          })
+          .from(positions)
+          .where(eq(positions.id, record.positionId))
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+      : Promise.resolve(null),
+    record.managerId
+      ? db
+          .select({
+            id: employees.id,
+            fullName: employees.fullName,
+          })
+          .from(employees)
+          .where(eq(employees.id, record.managerId))
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+      : Promise.resolve(null),
+    record.branchId
+      ? db
+          .select({
+            id: branches.id,
+            name: branches.name,
+          })
+          .from(branches)
+          .where(eq(branches.id, record.branchId))
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+      : Promise.resolve(null),
+  ]);
+
+  return employeeSummarySchema.parse({
+    id: record.id,
+    organizationId: record.organizationId,
+    employeeCode: record.employeeCode ?? null,
+    cpf: record.cpf ?? null,
+    fullName: record.fullName,
+    email: record.email ?? null,
+    phone: record.phone ?? null,
+    departmentId: record.departmentId ?? null,
+    departmentName: department?.name ?? null,
+    positionId: record.positionId ?? null,
+    positionName: position?.title ?? null,
+    hireDate: serializeDateValue(record.hireDate),
+    birthDate: serializeDateValue(record.birthDate),
+    gender: record.gender ?? null,
+    ethnicity: record.ethnicity ?? null,
+    educationLevel: record.educationLevel ?? null,
+    salary: parseStoredNumber(record.salary),
+    employmentType: record.employmentType,
+    status: record.status,
+    managerId: record.managerId ?? null,
+    location: record.location ?? null,
+    branchId: record.branchId ?? null,
+    terminationDate: serializeDateValue(record.terminationDate),
+    notes: record.notes ?? null,
+    createdAt: serializeTimestampValue(record.createdAt),
+    updatedAt: serializeTimestampValue(record.updatedAt),
+    branch,
+    department,
+    position,
+    manager,
+  });
 };
 
 const serializeOrganization = async (
@@ -300,7 +911,7 @@ function toNotificationSummary(record: {
     },
     "organization.bootstrap": {
       actionLabel: "Ver organização",
-      description: `A organização foi inicializada com a unidade ${String(metadata.branchCode ?? "principal")}.`,
+      description: "A organização foi inicializada e está pronta para concluir o onboarding.",
       href: "/app/settings/organization",
       level: "neutral",
       title: "Ambiente criado",
@@ -364,14 +975,14 @@ function toNotificationSummary(record: {
     "role.assign": {
       actionLabel: null,
       description: "Um perfil de acesso foi atribuído a um membro.",
-      href: "/app/social/collaborators?tab=roles",
+      href: null,
       level: "warning",
       title: "Perfil atribuído",
     },
     "role.revoke": {
       actionLabel: null,
       description: "Um perfil de acesso foi revogado.",
-      href: "/app/social/collaborators?tab=roles",
+      href: null,
       level: "warning",
       title: "Perfil revogado",
     },
@@ -509,6 +1120,18 @@ organizationRoutes.post("/departments", async (c) => {
 
   await ensureDepartmentCodeUnique(db, organization.id, input.code);
   await assertManagerMember(db, organization.id, input.managerMemberId ?? null);
+  await assertEmployee(
+    db,
+    organization.id,
+    input.managerEmployeeId ?? null,
+    "O gestor do departamento precisa ser um colaborador válido da organização.",
+  );
+  await assertDepartmentHierarchy(
+    db,
+    organization.id,
+    null,
+    input.parentDepartmentId ?? null,
+  );
   const availableBranches = await ensureDepartmentBranches(
     db,
     organization.id,
@@ -522,7 +1145,12 @@ organizationRoutes.post("/departments", async (c) => {
         organizationId: organization.id,
         name: input.name,
         code: input.code,
+        description: normalizeEmpty(input.description),
+        parentDepartmentId: input.parentDepartmentId ?? null,
+        managerEmployeeId: input.managerEmployeeId ?? null,
         managerMemberId: input.managerMemberId ?? null,
+        budget: normalizeNumber(input.budget),
+        costCenter: normalizeEmpty(input.costCenter),
         notes: normalizeEmpty(input.notes),
       })
       .returning({ id: departments.id });
@@ -553,6 +1181,8 @@ organizationRoutes.post("/departments", async (c) => {
       metadata: {
         code: input.code,
         name: input.name,
+        parentDepartmentId: input.parentDepartmentId ?? null,
+        managerEmployeeId: input.managerEmployeeId ?? null,
         managerMemberId: input.managerMemberId ?? null,
       },
     });
@@ -598,6 +1228,18 @@ organizationRoutes.patch(
 
     await ensureDepartmentCodeUnique(db, organization.id, input.code, departmentId);
     await assertManagerMember(db, organization.id, input.managerMemberId ?? null);
+    await assertEmployee(
+      db,
+      organization.id,
+      input.managerEmployeeId ?? null,
+      "O gestor do departamento precisa ser um colaborador válido da organização.",
+    );
+    await assertDepartmentHierarchy(
+      db,
+      organization.id,
+      departmentId,
+      input.parentDepartmentId ?? null,
+    );
     const availableBranches = await ensureDepartmentBranches(
       db,
       organization.id,
@@ -610,7 +1252,12 @@ organizationRoutes.patch(
         .set({
           name: input.name,
           code: input.code,
+          description: normalizeEmpty(input.description),
+          parentDepartmentId: input.parentDepartmentId ?? null,
+          managerEmployeeId: input.managerEmployeeId ?? null,
           managerMemberId: input.managerMemberId ?? null,
+          budget: normalizeNumber(input.budget),
+          costCenter: normalizeEmpty(input.costCenter),
           notes: normalizeEmpty(input.notes),
           status: input.status ?? existingDepartment.status,
           updatedAt: new Date(),
@@ -641,6 +1288,8 @@ organizationRoutes.patch(
         metadata: {
           code: input.code,
           name: input.name,
+          parentDepartmentId: input.parentDepartmentId ?? null,
+          managerEmployeeId: input.managerEmployeeId ?? null,
           managerMemberId: input.managerMemberId ?? null,
           status: input.status ?? existingDepartment.status,
         },
@@ -648,5 +1297,446 @@ organizationRoutes.patch(
     });
 
     return c.json(await serializeDepartment(db, departmentId));
+  },
+);
+
+organizationRoutes.get("/employees", async (c) => {
+  const snapshot = c.get("sessionSnapshot");
+
+  if (!snapshot?.organization) {
+    throw new HTTPException(401, { message: "Autenticação obrigatória." });
+  }
+
+  const db = c.get("db");
+  const records = await db
+    .select({ id: employees.id })
+    .from(employees)
+    .where(eq(employees.organizationId, snapshot.organization.id));
+
+  const serialized = await Promise.all(
+    records.map((record) => serializeEmployee(db, record.id)),
+  );
+
+  return c.json(
+    serialized.sort((left, right) =>
+      left.fullName.localeCompare(right.fullName, "pt-BR"),
+    ),
+  );
+});
+
+organizationRoutes.get(
+  "/employees/:employeeId",
+  zValidator("param", employeeIdSchema),
+  async (c) => {
+    const snapshot = c.get("sessionSnapshot");
+
+    if (!snapshot?.organization) {
+      throw new HTTPException(401, { message: "Autenticação obrigatória." });
+    }
+
+    const { employeeId } = c.req.valid("param");
+    const db = c.get("db");
+    const [employee] = await db
+      .select({ id: employees.id })
+      .from(employees)
+      .where(
+        and(
+          eq(employees.id, employeeId),
+          eq(employees.organizationId, snapshot.organization.id),
+        ),
+      )
+      .limit(1);
+
+    if (!employee) {
+      throw new HTTPException(404, { message: "Colaborador não encontrado." });
+    }
+
+    return c.json(await serializeEmployee(db, employeeId));
+  },
+);
+
+organizationRoutes.post(
+  "/employees",
+  requireRoles("owner", "admin", "hr_admin"),
+  async (c) => {
+    const snapshot = c.get("sessionSnapshot");
+
+    if (!snapshot?.organization) {
+      throw new HTTPException(401, { message: "Autenticação obrigatória." });
+    }
+
+    const input = await parseCreateEmployeeInput(c);
+    const db = c.get("db");
+    const organizationId = snapshot.organization.id;
+
+    await ensureEmployeeCodeUnique(
+      db,
+      organizationId,
+      normalizeEmpty(input.employeeCode),
+    );
+    await assertBranch(
+      db,
+      organizationId,
+      input.branchId ?? null,
+      "A unidade vinculada não existe nesta organização.",
+    );
+    await assertEmployee(
+      db,
+      organizationId,
+      input.managerId ?? null,
+      "O gestor informado não existe nesta organização.",
+    );
+    await assertDepartment(
+      db,
+      organizationId,
+      input.departmentId ?? null,
+      "O departamento informado não existe nesta organização.",
+    );
+    const position = await assertPosition(
+      db,
+      organizationId,
+      input.positionId ?? null,
+      "O cargo informado não existe nesta organização.",
+    );
+
+    if (
+      input.departmentId &&
+      position?.departmentId &&
+      position.departmentId !== input.departmentId
+    ) {
+      throw new HTTPException(400, {
+        message: "O cargo informado pertence a outro departamento.",
+      });
+    }
+
+    const resolvedDepartmentId = input.departmentId ?? position?.departmentId ?? null;
+
+    const [employee] = await db
+      .insert(employees)
+      .values({
+        organizationId,
+        employeeCode: normalizeEmpty(input.employeeCode),
+        cpf: normalizeEmpty(input.cpf),
+        fullName: input.fullName.trim(),
+        email: normalizeEmpty(input.email),
+        phone: normalizeEmpty(input.phone),
+        departmentId: resolvedDepartmentId,
+        positionId: input.positionId ?? null,
+        hireDate: input.hireDate,
+        birthDate: normalizeEmpty(input.birthDate),
+        gender: normalizeEmpty(input.gender),
+        ethnicity: normalizeEmpty(input.ethnicity),
+        educationLevel: normalizeEmpty(input.educationLevel),
+        salary: normalizeNumber(input.salary),
+        employmentType: input.employmentType.trim(),
+        status: input.status.trim(),
+        managerId: input.managerId ?? null,
+        location: normalizeEmpty(input.location),
+        branchId: input.branchId ?? null,
+        terminationDate: normalizeEmpty(input.terminationDate),
+        notes: normalizeEmpty(input.notes),
+      })
+      .returning({ id: employees.id });
+
+    if (!employee) {
+      throw new HTTPException(500, {
+        message: "Não foi possível criar o colaborador.",
+      });
+    }
+
+    return c.json(await serializeEmployee(db, employee.id), 201);
+  },
+);
+
+organizationRoutes.patch(
+  "/employees/:employeeId",
+  requireRoles("owner", "admin", "hr_admin"),
+  zValidator("param", employeeIdSchema),
+  async (c) => {
+    const snapshot = c.get("sessionSnapshot");
+
+    if (!snapshot?.organization) {
+      throw new HTTPException(401, { message: "Autenticação obrigatória." });
+    }
+
+    const { employeeId } = c.req.valid("param");
+    const input = await parseUpdateEmployeeInput(c);
+    const db = c.get("db");
+    const organizationId = snapshot.organization.id;
+
+    const [existingEmployee] = await db
+      .select({ id: employees.id })
+      .from(employees)
+      .where(
+        and(
+          eq(employees.id, employeeId),
+          eq(employees.organizationId, organizationId),
+        ),
+      )
+      .limit(1);
+
+    if (!existingEmployee) {
+      throw new HTTPException(404, { message: "Colaborador não encontrado." });
+    }
+
+    if (input.managerId && input.managerId === employeeId) {
+      throw new HTTPException(400, {
+        message: "Um colaborador não pode ser o próprio gestor.",
+      });
+    }
+
+    await ensureEmployeeCodeUnique(
+      db,
+      organizationId,
+      normalizeEmpty(input.employeeCode),
+      employeeId,
+    );
+    await assertBranch(
+      db,
+      organizationId,
+      input.branchId ?? null,
+      "A unidade vinculada não existe nesta organização.",
+    );
+    await assertEmployee(
+      db,
+      organizationId,
+      input.managerId ?? null,
+      "O gestor informado não existe nesta organização.",
+    );
+    await assertDepartment(
+      db,
+      organizationId,
+      input.departmentId ?? null,
+      "O departamento informado não existe nesta organização.",
+    );
+    const position = await assertPosition(
+      db,
+      organizationId,
+      input.positionId ?? null,
+      "O cargo informado não existe nesta organização.",
+    );
+
+    if (
+      input.departmentId &&
+      position?.departmentId &&
+      position.departmentId !== input.departmentId
+    ) {
+      throw new HTTPException(400, {
+        message: "O cargo informado pertence a outro departamento.",
+      });
+    }
+
+    const resolvedDepartmentId = input.departmentId ?? position?.departmentId ?? null;
+
+    await db
+      .update(employees)
+      .set({
+        employeeCode: normalizeEmpty(input.employeeCode),
+        cpf: normalizeEmpty(input.cpf),
+        fullName: input.fullName.trim(),
+        email: normalizeEmpty(input.email),
+        phone: normalizeEmpty(input.phone),
+        departmentId: resolvedDepartmentId,
+        positionId: input.positionId ?? null,
+        hireDate: input.hireDate,
+        birthDate: normalizeEmpty(input.birthDate),
+        gender: normalizeEmpty(input.gender),
+        ethnicity: normalizeEmpty(input.ethnicity),
+        educationLevel: normalizeEmpty(input.educationLevel),
+        salary: normalizeNumber(input.salary),
+        employmentType: input.employmentType.trim(),
+        status: input.status.trim(),
+        managerId: input.managerId ?? null,
+        location: normalizeEmpty(input.location),
+        branchId: input.branchId ?? null,
+        terminationDate: normalizeEmpty(input.terminationDate),
+        notes: normalizeEmpty(input.notes),
+        updatedAt: new Date(),
+      })
+      .where(eq(employees.id, employeeId));
+
+    return c.json(await serializeEmployee(db, employeeId));
+  },
+);
+
+organizationRoutes.get("/positions", async (c) => {
+  const snapshot = c.get("sessionSnapshot");
+
+  if (!snapshot?.organization) {
+    throw new HTTPException(401, { message: "Autenticação obrigatória." });
+  }
+
+  const db = c.get("db");
+  const records = await db
+    .select({ id: positions.id })
+    .from(positions)
+    .where(eq(positions.organizationId, snapshot.organization.id));
+
+  const serialized = await Promise.all(
+    records.map((record) => serializePosition(db, record.id)),
+  );
+
+  return c.json(
+    serialized.sort((left, right) =>
+      left.title.localeCompare(right.title, "pt-BR"),
+    ),
+  );
+});
+
+organizationRoutes.get(
+  "/positions/:positionId",
+  zValidator("param", positionIdSchema),
+  async (c) => {
+    const snapshot = c.get("sessionSnapshot");
+
+    if (!snapshot?.organization) {
+      throw new HTTPException(401, { message: "Autenticação obrigatória." });
+    }
+
+    const { positionId } = c.req.valid("param");
+    const db = c.get("db");
+    const [position] = await db
+      .select({ id: positions.id })
+      .from(positions)
+      .where(
+        and(
+          eq(positions.id, positionId),
+          eq(positions.organizationId, snapshot.organization.id),
+        ),
+      )
+      .limit(1);
+
+    if (!position) {
+      throw new HTTPException(404, { message: "Cargo não encontrado." });
+    }
+
+    return c.json(await serializePosition(db, positionId));
+  },
+);
+
+organizationRoutes.post(
+  "/positions",
+  requireRoles("owner", "admin", "hr_admin"),
+  async (c) => {
+    const snapshot = c.get("sessionSnapshot");
+
+    if (!snapshot?.organization) {
+      throw new HTTPException(401, { message: "Autenticação obrigatória." });
+    }
+
+    const input = await parseCreatePositionInput(c);
+    const db = c.get("db");
+    const organizationId = snapshot.organization.id;
+
+    await assertDepartment(
+      db,
+      organizationId,
+      input.departmentId ?? null,
+      "O departamento informado não existe nesta organização.",
+    );
+    await assertPositionHierarchy(
+      db,
+      organizationId,
+      null,
+      input.reportsToPositionId ?? null,
+    );
+
+    const [position] = await db
+      .insert(positions)
+      .values({
+        organizationId,
+        departmentId: input.departmentId ?? null,
+        title: input.title.trim(),
+        description: normalizeEmpty(input.description),
+        level: normalizeEmpty(input.level),
+        salaryRangeMin: normalizeNumber(input.salaryRangeMin),
+        salaryRangeMax: normalizeNumber(input.salaryRangeMax),
+        requirements: normalizeStringArray(input.requirements),
+        responsibilities: normalizeStringArray(input.responsibilities),
+        reportsToPositionId: input.reportsToPositionId ?? null,
+        requiredEducationLevel: normalizeEmpty(input.requiredEducationLevel),
+        requiredExperienceYears:
+          typeof input.requiredExperienceYears === "number"
+            ? input.requiredExperienceYears
+            : null,
+      })
+      .returning({ id: positions.id });
+
+    if (!position) {
+      throw new HTTPException(500, {
+        message: "Não foi possível criar o cargo.",
+      });
+    }
+
+    return c.json(await serializePosition(db, position.id), 201);
+  },
+);
+
+organizationRoutes.patch(
+  "/positions/:positionId",
+  requireRoles("owner", "admin", "hr_admin"),
+  zValidator("param", positionIdSchema),
+  async (c) => {
+    const snapshot = c.get("sessionSnapshot");
+
+    if (!snapshot?.organization) {
+      throw new HTTPException(401, { message: "Autenticação obrigatória." });
+    }
+
+    const { positionId } = c.req.valid("param");
+    const input = await parseUpdatePositionInput(c);
+    const db = c.get("db");
+    const organizationId = snapshot.organization.id;
+
+    const [existingPosition] = await db
+      .select({ id: positions.id })
+      .from(positions)
+      .where(
+        and(
+          eq(positions.id, positionId),
+          eq(positions.organizationId, organizationId),
+        ),
+      )
+      .limit(1);
+
+    if (!existingPosition) {
+      throw new HTTPException(404, { message: "Cargo não encontrado." });
+    }
+
+    await assertDepartment(
+      db,
+      organizationId,
+      input.departmentId ?? null,
+      "O departamento informado não existe nesta organização.",
+    );
+    await assertPositionHierarchy(
+      db,
+      organizationId,
+      positionId,
+      input.reportsToPositionId ?? null,
+    );
+
+    await db
+      .update(positions)
+      .set({
+        departmentId: input.departmentId ?? null,
+        title: input.title.trim(),
+        description: normalizeEmpty(input.description),
+        level: normalizeEmpty(input.level),
+        salaryRangeMin: normalizeNumber(input.salaryRangeMin),
+        salaryRangeMax: normalizeNumber(input.salaryRangeMax),
+        requirements: normalizeStringArray(input.requirements),
+        responsibilities: normalizeStringArray(input.responsibilities),
+        reportsToPositionId: input.reportsToPositionId ?? null,
+        requiredEducationLevel: normalizeEmpty(input.requiredEducationLevel),
+        requiredExperienceYears:
+          typeof input.requiredExperienceYears === "number"
+            ? input.requiredExperienceYears
+            : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(positions.id, positionId));
+
+    return c.json(await serializePosition(db, positionId));
   },
 );

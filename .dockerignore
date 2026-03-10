@@ -3,8 +3,13 @@
 node_modules
 apps/*/node_modules
 apps/*/.next
+apps/*/.next.bak.*
+apps/*/.open-next
+apps/*/dist
 packages/*/dist
+--help/dist
 playwright-report
 test-results
 .wrangler
+.tmp
 tmp

@@ -3,14 +3,20 @@ import { z } from "zod";
 
 import {
   branchSummarySchema,
+  employeeListSchema,
+  employeeSummarySchema,
   departmentListSchema,
+  positionListSchema,
+  positionSummarySchema,
   notificationListSchema,
   organizationDirectoryMemberListSchema,
   sessionResponseSchema,
   type BranchSummary,
+  type EmployeeSummary,
   type DepartmentSummary,
   type NotificationSummary,
   type OrganizationDirectoryMember,
+  type PositionSummary,
   type SessionResponse,
 } from "@daton/contracts";
 
@@ -83,6 +89,26 @@ export const getServerOrganizationMembers = async () =>
     allowUnauthorized: false,
   });
 
+export const getServerEmployees = async () =>
+  serverApiFetch("/api/v1/employees", employeeListSchema, {
+    allowUnauthorized: false,
+  });
+
+export const getServerEmployee = async (employeeId: string) =>
+  serverApiFetch(`/api/v1/employees/${employeeId}`, employeeSummarySchema, {
+    allowUnauthorized: false,
+  });
+
+export const getServerPositions = async () =>
+  serverApiFetch("/api/v1/positions", positionListSchema, {
+    allowUnauthorized: false,
+  });
+
+export const getServerPosition = async (positionId: string) =>
+  serverApiFetch(`/api/v1/positions/${positionId}`, positionSummarySchema, {
+    allowUnauthorized: false,
+  });
+
 export const getServerDepartments = async () =>
   serverApiFetch("/api/v1/departments", departmentListSchema, {
     allowUnauthorized: false,
@@ -97,4 +123,6 @@ export type ServerSession = SessionResponse;
 export type ServerBranch = BranchSummary;
 export type ServerOrganizationMember = OrganizationDirectoryMember;
 export type ServerDepartment = DepartmentSummary;
+export type ServerEmployee = EmployeeSummary;
+export type ServerPosition = PositionSummary;
 export type ServerNotification = NotificationSummary;

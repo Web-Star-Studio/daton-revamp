@@ -29,6 +29,17 @@ const normalizeConfigArgs = (args) => {
 
 const args = normalizeConfigArgs(cliArgs);
 
+const requireEnv = (name) => {
+  const value = process.env[name];
+
+  if (!value) {
+    console.error(`[deploy:web] Missing required environment variable: ${name}`);
+    process.exit(1);
+  }
+
+  return value;
+};
+
 const getPnpmCommand = () =>
   process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const pnpmCommand = getPnpmCommand();
@@ -74,4 +85,9 @@ if (!process.env.SENTRY_RELEASE) {
   }
 }
 
+requireEnv("NEXT_PUBLIC_APP_URL");
+requireEnv("NEXT_PUBLIC_API_URL");
+requireEnv("INTERNAL_API_URL");
+
+run(pnpmCommand, ["exec", "opennextjs-cloudflare", "build"]);
 run(pnpmCommand, ["exec", "opennextjs-cloudflare", "deploy", ...args]);

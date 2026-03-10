@@ -1,33 +1,27 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { formatCnpj } from "@daton/contracts";
 
 import { AuthRedirect } from "@/components/auth-redirect";
 import { CopyButton } from "@/components/copy-button";
-import { MaterialIcon } from "@/components/app-icons";
-import { OrganizationProfileForm } from "@/components/organization-profile-form";
+import { OrganizationProfileModal } from "@/components/organization-profile-modal";
 import { OrganizationDepartmentsWorkspace } from "@/components/organization-departments-workspace";
 import { OrganizationUnitsWorkspace } from "@/components/organization-units-workspace";
 import {
-  formatCompanySector,
-  getGoalLabel,
-  getMaturityLabel,
-  getSizeLabel,
-} from "@/lib/organization-profile";
-import {
   getServerBranches,
   getServerDepartments,
+  getServerEmployees,
   getServerOrganizationMembers,
   type ServerBranch,
   type ServerDepartment,
+  type ServerEmployee,
   type ServerOrganizationMember,
   type ServerSession,
 } from "@/lib/server-api";
 import { requireSession } from "@/lib/session";
-import { formatBranchStatus } from "@/lib/utils";
 
 type OrganizationSettingsSearchParams = {
-  branch?: string;
   departmentBranch?: string;
   departmentQ?: string;
   departmentStatus?: string;
@@ -42,104 +36,29 @@ type OrganizationSettingsPageProps = {
   searchParams: Promise<OrganizationSettingsSearchParams>;
 };
 
-type BranchTreeNode = {
-  branch: ServerBranch;
-  children: BranchTreeNode[];
-};
-
-type OrganizationTab = "units" | "departments";
+type OrganizationTab = "overview" | "units" | "departments";
 type OrganizationUnitStatusFilter = "all" | "active" | "archived";
 type OrganizationUnitKindFilter = "all" | "headquarters" | "branch";
 type SessionOrganization = NonNullable<ServerSession["organization"]>;
 
-const collator = new Intl.Collator("pt-BR");
-
-function sortBranches(branches: ServerBranch[]) {
-  return [...branches].sort(
-    (left, right) =>
-      Number(right.isHeadquarters) - Number(left.isHeadquarters) ||
-      collator.compare(left.name, right.name),
-  );
-}
-
-function buildBranchTree(branches: ServerBranch[]) {
-  const branchIds = new Set(branches.map((branch) => branch.id));
-  const childrenByParent = new Map<string | null, ServerBranch[]>();
-
-  for (const branch of branches) {
-    const parentId =
-      branch.parentBranchId && branchIds.has(branch.parentBranchId)
-        ? branch.parentBranchId
-        : null;
-    const current = childrenByParent.get(parentId) ?? [];
-    current.push(branch);
-    childrenByParent.set(parentId, current);
-  }
-
-  const toNode = (
-    branch: ServerBranch,
-    visited = new Set<string>(),
-  ): BranchTreeNode => {
-    if (visited.has(branch.id)) {
-      return {
-        branch,
-        children: [],
-      };
-    }
-
-    const nextVisited = new Set(visited);
-    nextVisited.add(branch.id);
-
-    return {
-      branch,
-      children: sortBranches(childrenByParent.get(branch.id) ?? []).map(
-        (child) => toNode(child, nextVisited),
-      ),
-    };
-  };
-
-  const topLevelBranches = sortBranches(childrenByParent.get(null) ?? []);
-  const headquarterBranch =
-    topLevelBranches.find((branch) => branch.isHeadquarters) ??
-    sortBranches(branches).find((branch) => branch.isHeadquarters) ??
-    topLevelBranches[0] ??
-    null;
-
-  if (!headquarterBranch) {
-    return {
-      headquarterNode: null,
-    };
-  }
-
-  const directChildren = sortBranches(
-    childrenByParent.get(headquarterBranch.id) ?? [],
-  );
-  const reparentedTopLevelSiblings = topLevelBranches.filter(
-    (branch) => branch.id !== headquarterBranch.id,
-  );
-
-  return {
-    headquarterNode: {
-      branch: headquarterBranch,
-      children: [...directChildren, ...reparentedTopLevelSiblings].map(
-        (branch) => toNode(branch),
-      ),
-    },
-  };
-}
-
 function getActiveOrganizationTab(tab?: string): OrganizationTab {
+  if (tab === "overview") {
+    return "overview";
+  }
+
+  if (tab === "units") {
+    return "units";
+  }
+
   if (tab === "departments") {
     return "departments";
   }
 
-  return "units";
+  return "overview";
 }
 
 function buildOrganizationHref({
-  branchId,
-  headquarterId,
-  tab = "units",
+  tab = "overview",
   departmentBranch = "all",
   departmentSearch,
   departmentStatus = "all",
@@ -147,11 +66,9 @@ function buildOrganizationHref({
   unitStatus = "all",
   unitKind = "all",
 }: {
-  branchId?: string | null;
   departmentBranch?: string;
   departmentSearch?: string;
   departmentStatus?: "all" | "active" | "archived";
-  headquarterId?: string | null;
   tab?: OrganizationTab;
   unitSearch?: string;
   unitStatus?: OrganizationUnitStatusFilter;
@@ -159,12 +76,8 @@ function buildOrganizationHref({
 }) {
   const searchParams = new URLSearchParams();
 
-  if (tab !== "units") {
+  if (tab !== "overview") {
     searchParams.set("tab", tab);
-  }
-
-  if (branchId && branchId !== headquarterId) {
-    searchParams.set("branch", branchId);
   }
 
   if (tab === "units") {
@@ -228,368 +141,140 @@ function formatOrganizationValue(value?: string | null) {
   return normalized ? normalized : "Não informado";
 }
 
-function formatOrganizationOpeningDate(value?: string | null) {
+function formatOrganizationLongDate(value?: string | null) {
   if (!value) {
     return "Não informado";
   }
 
-  const [year, month, day] = value.split("-");
+  const normalizedValue = `${value}T12:00:00`;
+  const date = new Date(normalizedValue);
 
-  if (!year || !month || !day) {
+  if (Number.isNaN(date.getTime())) {
     return "Não informado";
   }
 
-  return `${day}/${month}/${year}`;
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
 }
 
-function formatOnboardingStatus(status: SessionOrganization["onboardingStatus"]) {
-  switch (status) {
-    case "completed":
-      return "Onboarding concluído";
-    case "skipped":
-      return "Onboarding incompleto";
-    default:
-      return "Onboarding pendente";
-  }
-}
-
-function renderBranchNodes(
-  nodes: BranchTreeNode[],
-  selectedBranchId: string | null,
-  headquarterId: string | null,
-  activeTab: OrganizationTab,
-) {
-  if (nodes.length === 0) {
-    return null;
+function formatHeadquartersLocation(branch?: ServerBranch) {
+  if (!branch) {
+    return "Sede não cadastrada";
   }
 
-  return (
-    <ul className="organization-tree__list organization-tree__list--nested">
-      {nodes.map((node) => {
-        const isActive = node.branch.id === selectedBranchId;
+  const parts = [branch.city, branch.stateOrProvince, branch.country]
+    .map((value) => value?.trim())
+    .filter(Boolean);
 
-        return (
-          <li className="organization-tree__item" key={node.branch.id}>
-            <Link
-              className={`organization-tree__link${isActive ? " organization-tree__link--active" : ""}`}
-              href={buildOrganizationHref({
-                branchId: node.branch.id,
-                headquarterId,
-                tab: activeTab,
-              })}
-            >
-              <span
-                className="organization-tree__icon-wrap organization-tree__icon-wrap--branch"
-                aria-hidden="true"
-              >
-                <MaterialIcon
-                  className="organization-tree__icon"
-                  icon="storefront"
-                />
-              </span>
-              <span className="organization-tree__content">
-                <span className="organization-tree__title">
-                  {node.branch.name}
-                </span>
-                <span className="organization-tree__meta">
-                  {formatCnpj(node.branch.legalIdentifier)}
-                </span>
-              </span>
-              <span className="organization-tree__actions" aria-hidden="true">
-                <MaterialIcon
-                  className="organization-tree__action-icon"
-                  icon="more_horiz"
-                />
-              </span>
-            </Link>
-            {renderBranchNodes(
-              node.children,
-              selectedBranchId,
-              headquarterId,
-              activeTab,
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
+  return parts.join(", ") || "Localização não informada";
 }
 
-function OrganizationTreePane({
-  activeTab,
-  headquarterNode,
-  selectedBranchId,
-}: {
-  activeTab: OrganizationTab;
-  headquarterNode: BranchTreeNode | null;
-  selectedBranchId: string | null;
-}) {
-  return (
-    <aside className="organization-tree-pane">
-      <p className="organization-pane-label">Estrutura hierárquica</p>
-      {headquarterNode ? (
-        <div className="organization-tree">
-          <Link
-            className={`organization-tree__link organization-tree__link--root${
-              selectedBranchId === headquarterNode.branch.id
-                ? " organization-tree__link--active"
-                : ""
-            }`}
-            href={buildOrganizationHref({
-              branchId: headquarterNode.branch.id,
-              headquarterId: headquarterNode.branch.id,
-              tab: activeTab,
-            })}
-          >
-            <span
-              className="organization-tree__icon-wrap organization-tree__icon-wrap--matrix"
-              aria-hidden="true"
-            >
-              <MaterialIcon className="organization-tree__icon" icon="domain" />
-            </span>
-            <span className="organization-tree__content">
-              <span className="organization-tree__title">
-                {headquarterNode.branch.name}
-              </span>
-              <span className="organization-tree__meta">
-                {formatCnpj(headquarterNode.branch.legalIdentifier)}
-              </span>
-            </span>
-            <span className="organization-tree__actions" aria-hidden="true">
-              <MaterialIcon
-                className="organization-tree__action-icon"
-                icon="more_horiz"
-              />
-            </span>
-          </Link>
-          {renderBranchNodes(
-            headquarterNode.children,
-            selectedBranchId,
-            headquarterNode.branch.id,
-            activeTab,
-          )}
-        </div>
-      ) : (
-        <div className="organization-tree__empty">
-          <strong>Nenhuma filial encontrada</strong>
-          <p>
-            Cadastre a filial matriz para visualizar a estrutura da
-            organização.
-          </p>
-        </div>
-      )}
-    </aside>
-  );
+function formatHeadquartersAddress(branch?: ServerBranch) {
+  if (!branch) {
+    return "Cadastre uma unidade headquarters para exibir o endereço aqui.";
+  }
+
+  const parts = [branch.addressLine1, branch.addressLine2]
+    .map((value) => value?.trim())
+    .filter(Boolean);
+
+  return parts.join(" • ") || "Endereço não informado";
 }
 
-function OrganizationEntityHeader({
+function formatOverviewOperationalStatus(branches: ServerBranch[]) {
+  return branches.some((branch) => branch.status === "active")
+    ? "Ativa"
+    : "Em configuração";
+}
+
+function OrganizationOverviewField({
   title,
-  subtitle,
-  badges,
-  editHref,
+  value,
+  children,
 }: {
   title: string;
-  subtitle: string;
-  badges: Array<{ label: string; tone: "muted" | "success" }>;
-  editHref?: string | null;
+  value: string;
+  children?: ReactNode;
 }) {
   return (
-    <div className="organization-entity">
-      <div className="organization-entity__identity">
-        <div className="organization-entity__copy">
-          <div className="organization-entity__title-row">
-            <h2 className="organization-entity__title">{title}</h2>
-            {badges.map((badge) => (
-              <span
-                className={`organization-chip organization-chip--${badge.tone}`}
-                key={badge.label}
-              >
-                {badge.label}
-              </span>
-            ))}
-          </div>
-          <p className="organization-entity__subtitle">
-            <MaterialIcon icon="location_on" />
-            <span>{subtitle}</span>
-          </p>
-        </div>
+    <article className="organization-overview__field">
+      <p className="organization-overview__field-label">{title}</p>
+      <div className="organization-overview__field-value-row">
+        <p className="organization-overview__field-value">{value}</p>
+        {children}
       </div>
-      {editHref ? (
-        <Link className="button button--secondary organization-entity__edit" href={editHref}>
-          <MaterialIcon icon="edit" />
-          <span>Editar dados</span>
-        </Link>
-      ) : null}
-    </div>
+    </article>
   );
 }
 
 function OrganizationOverviewPanel({
-  activeTab,
-  headquarterNode,
-  selectedBranch,
+  branches,
   organization,
-  detailTitle,
-  branchLine,
-  selectedKind,
-  selectedStatus,
-  editHref,
 }: {
-  activeTab: OrganizationTab;
-  headquarterNode: BranchTreeNode | null;
-  selectedBranch: ServerBranch | null;
+  branches: ServerBranch[];
   organization: SessionOrganization;
-  detailTitle: string;
-  branchLine: string;
-  selectedKind: string;
-  selectedStatus: string;
-  editHref?: string | null;
 }) {
-  const companyProfile = organization.onboardingData.company_profile;
+  const headquarters = branches.find((branch) => branch.isHeadquarters);
+  const operationalStatus = formatOverviewOperationalStatus(branches);
+  const tradeName = organization.tradeName?.trim() || organization.legalName;
+  const headquartersLocation = formatHeadquartersLocation(headquarters);
+  const headquartersAddress = formatHeadquartersAddress(headquarters);
 
   return (
-    <div className="organization-layout">
-      <OrganizationTreePane
-        activeTab={activeTab}
-        headquarterNode={headquarterNode}
-        selectedBranchId={selectedBranch?.id ?? null}
-      />
-
-      <section className="organization-detail-pane">
-        <div className="organization-detail__inner">
-          <OrganizationEntityHeader
-            badges={[
-              { label: selectedKind, tone: "muted" },
-              { label: selectedStatus, tone: "success" },
-            ]}
-            editHref={editHref}
-            subtitle={branchLine}
-            title={detailTitle}
+    <div className="organization-overview">
+      <section className="organization-overview__section">
+        <h3 className="organization-overview__section-title">Dados Cadastrais</h3>
+        <div className="organization-overview__grid">
+          <OrganizationOverviewField
+            title="Razão Social"
+            value={organization.legalName}
           />
+          <OrganizationOverviewField
+            title="CNPJ"
+            value={formatCnpj(organization.legalIdentifier)}
+          >
+            <CopyButton
+              size="compact"
+              value={formatCnpj(organization.legalIdentifier)}
+            />
+          </OrganizationOverviewField>
+          <OrganizationOverviewField
+            title="Nome Fantasia"
+            value={formatOrganizationValue(organization.tradeName)}
+          />
+          <OrganizationOverviewField
+            title="Data de Fundação"
+            value={formatOrganizationLongDate(organization.openingDate)}
+          />
+          <OrganizationOverviewField
+            title="Inscrição Estadual"
+            value={formatOrganizationValue(organization.stateRegistration)}
+          />
+          <OrganizationOverviewField
+            title="Status Operacional"
+            value={operationalStatus}
+          >
+            <span
+              aria-hidden="true"
+              className="organization-overview__status-dot"
+            />
+          </OrganizationOverviewField>
+        </div>
+      </section>
 
-          <div className="organization-card-grid">
-            <article className="organization-card">
-              <div className="organization-card__heading">
-                <h3 className="organization-card__title">
-                  <MaterialIcon icon="badge" />
-                  <span>Dados Cadastrais</span>
-                </h3>
-              </div>
-              <dl className="organization-data-list">
-                <div>
-                  <dt>Razão Social</dt>
-                  <dd>{organization.legalName}</dd>
-                </div>
-                <div>
-                  <dt>Nome Fantasia</dt>
-                  <dd>{formatOrganizationValue(organization.tradeName)}</dd>
-                </div>
-                <div>
-                  <dt>CNPJ</dt>
-                  <dd className="organization-inline-value">
-                    <span className="organization-data-list__mono">
-                      {formatCnpj(organization.legalIdentifier)}
-                    </span>
-                    <CopyButton
-                      size="compact"
-                      value={formatCnpj(organization.legalIdentifier)}
-                    />
-                  </dd>
-                </div>
-                <div>
-                  <dt>Data de Abertura</dt>
-                  <dd>{formatOrganizationOpeningDate(organization.openingDate)}</dd>
-                </div>
-              </dl>
-            </article>
+      <section className="organization-overview__section">
+        <h3 className="organization-overview__section-title">Sede Principal</h3>
+        <div className="organization-overview__hq-card">
+          <div aria-hidden="true" className="organization-overview__hq-map" />
+          <div aria-hidden="true" className="organization-overview__hq-overlay-mask" />
 
-            <article className="organization-card">
-              <div className="organization-card__heading">
-                <h3 className="organization-card__title">
-                  <MaterialIcon icon="account_balance" />
-                  <span>Fiscal</span>
-                </h3>
-                <span className="organization-card__status">
-                  {formatOnboardingStatus(organization.onboardingStatus)}
-                </span>
-              </div>
-              <dl className="organization-data-list">
-                <div>
-                  <dt>Regime Tributário</dt>
-                  <dd>{formatOrganizationValue(organization.taxRegime)}</dd>
-                </div>
-                <div>
-                  <dt>CNAE Principal</dt>
-                  <dd>{formatOrganizationValue(organization.primaryCnae)}</dd>
-                </div>
-                <div>
-                  <dt>Inscrição Estadual</dt>
-                  <dd className="organization-data-list__mono">
-                    {formatOrganizationValue(organization.stateRegistration)}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Inscrição Municipal</dt>
-                  <dd className="organization-data-list__mono">
-                    {formatOrganizationValue(organization.municipalRegistration)}
-                  </dd>
-                </div>
-              </dl>
-            </article>
-
-            <article className="organization-card">
-              <div className="organization-card__heading">
-                <h3 className="organization-card__title">
-                  <MaterialIcon icon="track_changes" />
-                  <span>Perfil operacional</span>
-                </h3>
-              </div>
-              <dl className="organization-data-list">
-                <div>
-                  <dt>Setor</dt>
-                  <dd>
-                    {companyProfile
-                      ? formatCompanySector(
-                          companyProfile.sector,
-                          companyProfile.customSector,
-                        )
-                      : "Não informado"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Porte</dt>
-                  <dd>
-                    {companyProfile
-                      ? getSizeLabel(companyProfile.size)
-                      : "Não informado"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Maturidade</dt>
-                  <dd>
-                    {companyProfile
-                      ? getMaturityLabel(companyProfile.maturityLevel)
-                      : "Não informado"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Objetivos</dt>
-                  <dd>
-                    {companyProfile && companyProfile.goals.length > 0
-                      ? companyProfile.goals.map((goal) => getGoalLabel(goal)).join(", ")
-                      : "Não informado"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Desafios atuais</dt>
-                  <dd>
-                    {companyProfile && companyProfile.currentChallenges.length > 0
-                      ? companyProfile.currentChallenges.join(", ")
-                      : "Nenhum desafio registrado"}
-                  </dd>
-                </div>
-              </dl>
-            </article>
+          <div className="organization-overview__hq-overlay">
+            <h4>{headquarters?.name ?? tradeName}</h4>
+            <p>{headquartersLocation}</p>
+            <span>{headquartersAddress}</span>
           </div>
         </div>
       </section>
@@ -606,24 +291,25 @@ export default async function OrganizationSettingsPage({
   ]);
 
   if (!session) {
-    return <AuthRedirect href="/sign-in" />;
+    return <AuthRedirect href="/auth?mode=sign-in" />;
   }
 
   if (!session.organization) {
-    return <AuthRedirect href="/create-organization" />;
+    return <AuthRedirect href="/auth?mode=sign-up" />;
   }
 
-  const [branches, members, departments] = (await Promise.all([
+  const [branches, members, departments, employees] = (await Promise.all([
     getServerBranches(),
     getServerOrganizationMembers(),
     getServerDepartments(),
+    getServerEmployees(),
   ])) as [
     ServerBranch[],
     ServerOrganizationMember[],
     ServerDepartment[],
+    ServerEmployee[],
   ];
 
-  const branchId = resolvedSearchParams.branch;
   const activeTab = getActiveOrganizationTab(resolvedSearchParams.tab);
   const isEditOrganization = resolvedSearchParams.edit === "organization";
   const unitSearchValue = resolvedSearchParams.q?.trim() ?? "";
@@ -638,20 +324,8 @@ export default async function OrganizationSettingsPage({
   const departmentBranchFilter =
     resolvedSearchParams.departmentBranch?.trim() || "all";
 
-  const { headquarterNode } = buildBranchTree(branches);
-  const headquarterBranch = headquarterNode?.branch ?? null;
-  const selectedBranch =
-    branches.find((branch) => branch.id === branchId) ??
-    headquarterBranch ??
-    branches[0] ??
-    null;
   const organization = session.organization;
-  const canManageOrganization = session.effectiveRoles.some(
-    (role) => role === "owner" || role === "admin",
-  );
   const currentViewHref = buildOrganizationHref({
-    branchId: selectedBranch?.id ?? null,
-    headquarterId: headquarterBranch?.id ?? null,
     tab: activeTab,
     departmentBranch: departmentBranchFilter,
     departmentSearch: departmentSearchValue,
@@ -660,32 +334,15 @@ export default async function OrganizationSettingsPage({
     unitStatus: unitStatusFilter,
     unitKind: unitKindFilter,
   });
-  const organizationEditHref = currentViewHref.includes("?")
-    ? `${currentViewHref}&edit=organization`
-    : `${currentViewHref}?edit=organization`;
-  const detailTitle =
-    selectedBranch?.name ??
-    organization.tradeName ??
-    organization.legalName;
-  const branchLine =
-    [
-      selectedBranch?.addressLine1,
-      selectedBranch?.city,
-      selectedBranch?.stateOrProvince,
-      selectedBranch?.country,
-    ]
-      .filter(Boolean)
-      .join(" • ") || "Localização da unidade não informada";
-  const selectedKind = selectedBranch
-    ? selectedBranch.isHeadquarters
-      ? "Matriz"
-      : "Filial"
-    : "Organização";
-  const selectedStatus = selectedBranch
-    ? formatBranchStatus(selectedBranch.status)
-    : "Sem unidades";
 
   const tabs = [
+    {
+      key: "overview",
+      label: "Visão Geral",
+      href: buildOrganizationHref({
+        tab: "overview",
+      }),
+    },
     {
       key: "units",
       label: "Unidades",
@@ -700,8 +357,6 @@ export default async function OrganizationSettingsPage({
       key: "departments",
       label: "Departamentos",
       href: buildOrganizationHref({
-        branchId: selectedBranch?.id ?? null,
-        headquarterId: headquarterBranch?.id ?? null,
         departmentBranch: departmentBranchFilter,
         departmentSearch: departmentSearchValue,
         departmentStatus: departmentStatusFilter,
@@ -712,37 +367,6 @@ export default async function OrganizationSettingsPage({
 
   return (
     <section className="workspace-section workspace-section--fill organization-page">
-      {isEditOrganization ? (
-        <article className="content-panel organization-profile-card">
-          <header className="organization-profile-card__header">
-            <p className="workspace-kicker">Organização</p>
-            <h2>Atualize o perfil operacional e os dados cadastrais.</h2>
-            <p>
-              Este é o mesmo conjunto de campos usado no onboarding dedicado da
-              organização. Revise estratégia, contexto operacional e dados
-              cadastrais em uma única superfície.
-            </p>
-          </header>
-          <OrganizationProfileForm
-            cancelHref={currentViewHref}
-            onSuccessHref={currentViewHref}
-            organization={organization}
-          />
-        </article>
-      ) : (
-        <OrganizationOverviewPanel
-          activeTab={activeTab}
-          branchLine={branchLine}
-          detailTitle={detailTitle}
-          editHref={canManageOrganization ? organizationEditHref : null}
-          headquarterNode={headquarterNode}
-          organization={organization}
-          selectedBranch={selectedBranch}
-          selectedKind={selectedKind}
-          selectedStatus={selectedStatus}
-        />
-      )}
-
       <nav aria-label="Seções da organização" className="workspace-tabs">
         {tabs.map((tab) => (
           <Link
@@ -758,6 +382,21 @@ export default async function OrganizationSettingsPage({
         ))}
       </nav>
 
+      {activeTab === "overview" ? (
+        <OrganizationOverviewPanel
+          branches={branches}
+          organization={organization}
+        />
+      ) : null}
+
+      {isEditOrganization ? (
+        <OrganizationProfileModal
+          onSuccessHref={currentViewHref}
+          open={isEditOrganization}
+          organization={organization}
+        />
+      ) : null}
+
       {activeTab === "units" ? (
         <OrganizationUnitsWorkspace
           branches={branches}
@@ -771,8 +410,8 @@ export default async function OrganizationSettingsPage({
       {activeTab === "departments" ? (
         <OrganizationDepartmentsWorkspace
           branches={branches}
+          employees={employees}
           initialDepartments={departments}
-          members={members}
         />
       ) : null}
     </section>

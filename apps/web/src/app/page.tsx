@@ -12,7 +12,7 @@ const workflow = [
   {
     index: "01",
     title: "Estruture a organização",
-    copy: "Crie a organização, registre o primeiro administrador e defina a matriz em um único ponto governado.",
+    copy: "Crie a organização e registre o primeiro administrador em um único ponto governado.",
   },
   {
     index: "02",
@@ -58,10 +58,10 @@ export default function HomePage() {
             responsabilidade e evidências auditáveis parecem compostas, não burocráticas.
           </p>
           <div className="hero__actions">
-            <Link className="button" href="/create-organization">
+            <Link className="button" href="/auth?mode=sign-up">
               Criar organização
             </Link>
-            <Link className="button button--ghost" href="/sign-in">
+            <Link className="button button--ghost" href="/auth?mode=sign-in">
               Acessar ambiente existente
             </Link>
           </div>
@@ -83,7 +83,7 @@ export default function HomePage() {
             <div className="pixel-panel__cards">
               <article>
                 <strong>Estrutura inicial</strong>
-                <span>Proprietário, admin, matriz.</span>
+                <span>Organização, proprietário e acesso inicial.</span>
               </article>
               <article>
                 <strong>Escopo de filiais</strong>

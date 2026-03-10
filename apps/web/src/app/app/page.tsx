@@ -6,11 +6,11 @@ export default async function AppHomePage() {
   const session = await requireSession();
 
   if (!session) {
-    redirect("/sign-in");
+    redirect("/auth?mode=sign-in");
   }
 
   if (!session.organization) {
-    redirect("/create-organization");
+    redirect("/auth?mode=sign-up");
   }
 
   redirect("/app/settings/organization");

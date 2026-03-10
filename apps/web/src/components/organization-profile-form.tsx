@@ -11,14 +11,12 @@ import {
 
 import type { UpdateOrganizationInput } from "@daton/contracts";
 
+import { OrganizationProfileReview } from "@/components/organization-profile-review";
 import { updateOrganization } from "@/lib/api";
 import {
-  formatCompanySector,
-  getGoalLabel,
-  getMaturityLabel,
   type OrganizationProfileDraft,
   getOrganizationProfileDefaults,
-  getSizeLabel,
+  normalizeOrganizationProfileDraft,
   goalOptions,
   maturityOptions,
   sectorOptions,
@@ -31,9 +29,11 @@ type SessionOrganization = NonNullable<ServerSession["organization"]>;
 type OrganizationProfileFormProps = {
   cancelHref?: string;
   mode?: "editor" | "wizard";
+  onCancel?: () => void;
   onSuccessHref: string;
   organization: SessionOrganization;
   saveLabel?: string;
+  variant?: "page" | "modal";
 };
 
 type WizardStep = {
@@ -72,30 +72,14 @@ const wizardSteps: WizardStep[] = [
 
 const defaultWizardStep = wizardSteps[0]!;
 
-const trimChallenges = (values: string[]) =>
-  values.map((value) => value.trim()).filter(Boolean);
-
-const normalizeDraft = (draft: OrganizationProfileDraft): UpdateOrganizationInput => ({
-  openingDate: draft.openingDate.trim(),
-  taxRegime: draft.taxRegime.trim(),
-  primaryCnae: draft.primaryCnae.trim(),
-  stateRegistration: draft.stateRegistration.trim(),
-  municipalRegistration: draft.municipalRegistration.trim(),
-  companyProfile: {
-    ...draft.companyProfile,
-    customSector: draft.companyProfile.customSector.trim(),
-    currentChallenges: trimChallenges(draft.companyProfile.currentChallenges),
-  },
-});
-
 const getStepError = (
   step: WizardStep["id"],
   draft: UpdateOrganizationInput,
 ): string | null => {
   if (step === "profile") {
     if (
-      draft.companyProfile.sector === "other"
-      && !(draft.companyProfile.customSector ?? "").trim()
+      draft.companyProfile.sector === "other" &&
+      !(draft.companyProfile.customSector ?? "").trim()
     ) {
       return "Informe o setor da empresa.";
     }
@@ -111,27 +95,14 @@ const getStepError = (
   return null;
 };
 
-function ReviewItem({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="organization-review-card__item">
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </div>
-  );
-}
-
 export function OrganizationProfileForm({
   cancelHref,
   mode = "editor",
+  onCancel,
   onSuccessHref,
   organization,
   saveLabel = "Salvar dados",
+  variant = "page",
 }: OrganizationProfileFormProps) {
   const router = useRouter();
   const [draft, setDraft] = useState<OrganizationProfileDraft>(() =>
@@ -143,10 +114,13 @@ export function OrganizationProfileForm({
   const [stepIndex, setStepIndex] = useState(0);
 
   const isWizard = mode === "wizard";
-  const normalizedDraft = normalizeDraft(draft);
+  const isModalVariant = variant === "modal";
+  const normalizedDraft = normalizeOrganizationProfileDraft(draft);
   const activeStep = wizardSteps[stepIndex] ?? defaultWizardStep;
 
-  const setField = <K extends keyof Omit<OrganizationProfileDraft, "companyProfile">>(
+  const setField = <
+    K extends keyof Omit<OrganizationProfileDraft, "companyProfile">,
+  >(
     key: K,
     value: OrganizationProfileDraft[K],
   ) => {
@@ -221,11 +195,15 @@ export function OrganizationProfileForm({
   const removeChallenge = (value: string) => {
     setCompanyProfileField(
       "currentChallenges",
-      draft.companyProfile.currentChallenges.filter((challenge) => challenge !== value),
+      draft.companyProfile.currentChallenges.filter(
+        (challenge) => challenge !== value,
+      ),
     );
   };
 
-  const toggleGoal = (value: OrganizationProfileDraft["companyProfile"]["goals"][number]) => {
+  const toggleGoal = (
+    value: OrganizationProfileDraft["companyProfile"]["goals"][number],
+  ) => {
     setCompanyProfileField(
       "goals",
       draft.companyProfile.goals.includes(value)
@@ -266,12 +244,19 @@ export function OrganizationProfileForm({
 
   const submitForm = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (isWizard && activeStep.id !== "review") {
+      return;
+    }
+
     const draftWithPendingChallenge = flushPendingChallenge(draft);
-    const payload = normalizeDraft(draftWithPendingChallenge);
+    const payload = normalizeOrganizationProfileDraft(
+      draftWithPendingChallenge,
+    );
 
     if (isWizard) {
-      const validationError = getStepError("profile", payload)
-        ?? getStepError("goals", payload);
+      const validationError =
+        getStepError("profile", payload) ?? getStepError("goals", payload);
 
       if (validationError) {
         setError(validationError);
@@ -284,7 +269,9 @@ export function OrganizationProfileForm({
 
   const goNext = () => {
     const draftWithPendingChallenge = flushPendingChallenge(draft);
-    const payload = normalizeDraft(draftWithPendingChallenge);
+    const payload = normalizeOrganizationProfileDraft(
+      draftWithPendingChallenge,
+    );
     const validationError = getStepError(activeStep.id, payload);
 
     if (validationError) {
@@ -302,361 +289,344 @@ export function OrganizationProfileForm({
   };
 
   const renderProfileSection = () => (
-    <div className="organization-form-grid">
-      <div className="field field--wide">
-        <label htmlFor="sector">Setor principal</label>
-        <select
-          id="sector"
-          name="sector"
-          value={draft.companyProfile.sector}
-          onChange={(event) =>
-            setCompanyProfileField("sector", event.currentTarget.value as UpdateOrganizationInput["companyProfile"]["sector"])
-          }
-        >
-          {sectorOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {draft.companyProfile.sector === "other" ? (
-        <div className="field field--wide">
-          <label htmlFor="customSector">Qual é o setor?</label>
-          <input
-            id="customSector"
-            name="customSector"
-            placeholder="Descreva o setor principal"
-            type="text"
-            value={draft.companyProfile.customSector}
-            onChange={(event) =>
-              setCompanyProfileField("customSector", event.currentTarget.value)
-            }
-          />
-        </div>
-      ) : null}
-
-      <fieldset className="organization-choice-group field--wide">
-        <legend>Porte da empresa</legend>
-        <div className="organization-choice-grid organization-choice-grid--compact">
-          {sizeOptions.map((option) => (
-            <label
-              className={`organization-choice-card${
-                draft.companyProfile.size === option.value
-                  ? " organization-choice-card--selected"
-                  : ""
-              }`}
-              key={option.value}
+    <div className="wizard-step-stack">
+      <section className="wizard-section">
+        <div className="organization-form-grid">
+          <div className="field field--wide">
+            <label htmlFor="sector">Setor principal</label>
+            <select
+              id="sector"
+              name="sector"
+              value={draft.companyProfile.sector}
+              onChange={(event) =>
+                setCompanyProfileField(
+                  "sector",
+                  event.currentTarget
+                    .value as UpdateOrganizationInput["companyProfile"]["sector"],
+                )
+              }
             >
+              {sectorOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {draft.companyProfile.sector === "other" ? (
+            <div className="field field--wide">
+              <label htmlFor="customSector">Qual é o setor?</label>
               <input
-                checked={draft.companyProfile.size === option.value}
-                name="size"
-                type="radio"
-                value={option.value}
-                onChange={() => setCompanyProfileField("size", option.value)}
+                id="customSector"
+                name="customSector"
+                placeholder="Descreva o setor principal"
+                type="text"
+                value={draft.companyProfile.customSector}
+                onChange={(event) =>
+                  setCompanyProfileField(
+                    "customSector",
+                    event.currentTarget.value,
+                  )
+                }
               />
-              <span>{option.label}</span>
-              <small>{option.description}</small>
-            </label>
-          ))}
+            </div>
+          ) : null}
         </div>
-      </fieldset>
+      </section>
+
+      <section className="wizard-section">
+        <fieldset className="organization-choice-group">
+          <div className="organization-choice-grid organization-choice-grid--compact">
+            {sizeOptions.map((option) => (
+              <label
+                className={`organization-choice-card${
+                  draft.companyProfile.size === option.value
+                    ? " organization-choice-card--selected"
+                    : ""
+                }`}
+                key={option.value}
+              >
+                <input
+                  checked={draft.companyProfile.size === option.value}
+                  name="size"
+                  type="radio"
+                  value={option.value}
+                  onChange={() => setCompanyProfileField("size", option.value)}
+                />
+                <span>{option.label}</span>
+                <small>{option.description}</small>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </section>
     </div>
   );
 
   const renderGoalsSection = () => (
-    <div className="organization-form-grid">
-      <fieldset className="organization-choice-group field--wide">
-        <legend>Objetivos prioritários</legend>
-        <div className="organization-goals-grid">
-          {goalOptions.map((option) => (
-            <label
-              className={`organization-goal-chip${
-                draft.companyProfile.goals.includes(option.value)
-                  ? " organization-goal-chip--selected"
-                  : ""
-              }`}
-              key={option.value}
-            >
-              <input
-                checked={draft.companyProfile.goals.includes(option.value)}
-                type="checkbox"
-                value={option.value}
-                onChange={() => toggleGoal(option.value)}
-              />
-              <span>{option.label}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+    <div className="wizard-step-stack">
+      <section className="wizard-section">
+        <fieldset className="organization-choice-group">
+          <div className="organization-goals-grid organization-goals-grid--cards">
+            {goalOptions.map((option) => (
+              <label
+                className={`organization-goal-chip${
+                  draft.companyProfile.goals.includes(option.value)
+                    ? " organization-goal-chip--selected"
+                    : ""
+                }`}
+                key={option.value}
+              >
+                <input
+                  checked={draft.companyProfile.goals.includes(option.value)}
+                  type="checkbox"
+                  value={option.value}
+                  onChange={() => toggleGoal(option.value)}
+                />
+                {draft.companyProfile.goals.includes(option.value) ? (
+                  <span
+                    className="organization-goal-chip__check"
+                    aria-hidden="true"
+                  >
+                    <svg fill="none" viewBox="0 0 24 24">
+                      <path
+                        d="M5 13l4 4L19 7"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="3"
+                      />
+                    </svg>
+                  </span>
+                ) : null}
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </section>
 
-      <fieldset className="organization-choice-group field--wide">
-        <legend>Nível de maturidade</legend>
-        <div className="organization-choice-grid">
-          {maturityOptions.map((option) => (
-            <label
-              className={`organization-choice-card${
-                draft.companyProfile.maturityLevel === option.value
-                  ? " organization-choice-card--selected"
-                  : ""
-              }`}
-              key={option.value}
-            >
-              <input
-                checked={draft.companyProfile.maturityLevel === option.value}
-                name="maturityLevel"
-                type="radio"
-                value={option.value}
-                onChange={() =>
-                  setCompanyProfileField("maturityLevel", option.value)
-                }
-              />
-              <span>{option.label}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <section className="wizard-section wizard-section--compact">
+        <fieldset className="organization-choice-group">
+          <div className="organization-segmented-control">
+            {maturityOptions.map((option) => (
+              <label
+                className="organization-segmented-control__option"
+                key={option.value}
+              >
+                <input
+                  checked={draft.companyProfile.maturityLevel === option.value}
+                  name="maturityLevel"
+                  type="radio"
+                  value={option.value}
+                  onChange={() =>
+                    setCompanyProfileField("maturityLevel", option.value)
+                  }
+                />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </section>
     </div>
   );
 
   const renderContextSection = () => (
-    <div className="organization-form-grid">
-      <div className="field field--wide">
-        <label htmlFor="currentChallenges">Desafios atuais</label>
-        <div className="challenge-input">
-          <input
-            id="currentChallenges"
-            name="currentChallenges"
-            placeholder="Ex: consolidar indicadores entre unidades"
-            type="text"
-            value={challengeInput}
-            onChange={(event) => setChallengeInput(event.currentTarget.value)}
-            onKeyDown={handleChallengeKeyDown}
-          />
-          <button
-            className="button button--secondary"
-            type="button"
-            onClick={addChallenge}
-          >
-            Adicionar
-          </button>
+    <section className="wizard-section">
+      <div className="organization-form-grid">
+        <div className="field field--wide">
+          <label htmlFor="currentChallenges">Desafios atuais</label>
+          <div className="challenge-input">
+            <input
+              id="currentChallenges"
+              name="currentChallenges"
+              placeholder="Ex: consolidar indicadores entre unidades"
+              type="text"
+              value={challengeInput}
+              onChange={(event) => setChallengeInput(event.currentTarget.value)}
+              onKeyDown={handleChallengeKeyDown}
+            />
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={addChallenge}
+            >
+              Adicionar
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div className="field field--wide">
-        <p className="form-note">
-          Use uma entrada por desafio. Esse campo é opcional e pode ficar vazio.
-        </p>
-        <div className="challenge-chip-list">
-          {draft.companyProfile.currentChallenges.length > 0 ? (
-            draft.companyProfile.currentChallenges.map((challenge) => (
-              <button
-                className="challenge-chip"
-                key={challenge}
-                type="button"
-                onClick={() => removeChallenge(challenge)}
-              >
-                <span>{challenge}</span>
-                <strong aria-hidden="true">×</strong>
-              </button>
-            ))
-          ) : (
-            <span className="challenge-chip challenge-chip--placeholder">
-              Nenhum desafio informado
-            </span>
-          )}
+        <div className="field field--wide">
+          <div className="challenge-chip-list">
+            {draft.companyProfile.currentChallenges.length > 0
+              ? draft.companyProfile.currentChallenges.map((challenge) => (
+                  <button
+                    className="challenge-chip"
+                    key={challenge}
+                    type="button"
+                    onClick={() => removeChallenge(challenge)}
+                  >
+                    <span>{challenge}</span>
+                    <strong aria-hidden="true">×</strong>
+                  </button>
+                ))
+              : null}
+          </div>
         </div>
       </div>
-    </div>
+    </section>
   );
 
   const renderFiscalSection = () => (
-    <div className="organization-form-grid">
-      <div className="field">
-        <label htmlFor="openingDate">Data de abertura</label>
-        <input
-          id="openingDate"
-          name="openingDate"
-          type="date"
-          value={draft.openingDate}
-          onChange={(event) => setField("openingDate", event.currentTarget.value)}
-        />
+    <section className="wizard-section">
+      <div className="organization-form-grid">
+        <div className="field">
+          <label htmlFor="openingDate">Data de abertura</label>
+          <input
+            id="openingDate"
+            name="openingDate"
+            type="date"
+            value={draft.openingDate}
+            onChange={(event) =>
+              setField("openingDate", event.currentTarget.value)
+            }
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="taxRegime">Regime tributário</label>
+          <input
+            id="taxRegime"
+            name="taxRegime"
+            placeholder="Ex: Simples Nacional"
+            type="text"
+            value={draft.taxRegime}
+            onChange={(event) =>
+              setField("taxRegime", event.currentTarget.value)
+            }
+          />
+        </div>
+        <div className="field field--wide">
+          <label htmlFor="primaryCnae">CNAE principal</label>
+          <input
+            id="primaryCnae"
+            name="primaryCnae"
+            placeholder="Ex: 62.01-5-01"
+            type="text"
+            value={draft.primaryCnae}
+            onChange={(event) =>
+              setField("primaryCnae", event.currentTarget.value)
+            }
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="stateRegistration">Inscrição estadual</label>
+          <input
+            id="stateRegistration"
+            name="stateRegistration"
+            type="text"
+            value={draft.stateRegistration}
+            onChange={(event) =>
+              setField("stateRegistration", event.currentTarget.value)
+            }
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="municipalRegistration">Inscrição municipal</label>
+          <input
+            id="municipalRegistration"
+            name="municipalRegistration"
+            type="text"
+            value={draft.municipalRegistration}
+            onChange={(event) =>
+              setField("municipalRegistration", event.currentTarget.value)
+            }
+          />
+        </div>
       </div>
-      <div className="field">
-        <label htmlFor="taxRegime">Regime tributário</label>
-        <input
-          id="taxRegime"
-          name="taxRegime"
-          placeholder="Ex: Simples Nacional"
-          type="text"
-          value={draft.taxRegime}
-          onChange={(event) => setField("taxRegime", event.currentTarget.value)}
-        />
-      </div>
-      <div className="field field--wide">
-        <label htmlFor="primaryCnae">CNAE principal</label>
-        <input
-          id="primaryCnae"
-          name="primaryCnae"
-          placeholder="Ex: 62.01-5-01"
-          type="text"
-          value={draft.primaryCnae}
-          onChange={(event) => setField("primaryCnae", event.currentTarget.value)}
-        />
-      </div>
-      <div className="field">
-        <label htmlFor="stateRegistration">Inscrição estadual</label>
-        <input
-          id="stateRegistration"
-          name="stateRegistration"
-          type="text"
-          value={draft.stateRegistration}
-          onChange={(event) =>
-            setField("stateRegistration", event.currentTarget.value)
-          }
-        />
-      </div>
-      <div className="field">
-        <label htmlFor="municipalRegistration">Inscrição municipal</label>
-        <input
-          id="municipalRegistration"
-          name="municipalRegistration"
-          type="text"
-          value={draft.municipalRegistration}
-          onChange={(event) =>
-            setField("municipalRegistration", event.currentTarget.value)
-          }
-        />
-      </div>
-    </div>
+    </section>
   );
 
   const renderReviewSection = () => (
-    <div className="organization-review-grid">
-      <article className="organization-review-card">
-        <h3>Perfil operacional</h3>
-        <dl>
-          <ReviewItem
-            label="Setor"
-            value={formatCompanySector(
-              normalizedDraft.companyProfile.sector,
-              normalizedDraft.companyProfile.customSector,
-            )}
-          />
-          <ReviewItem
-            label="Porte"
-            value={getSizeLabel(normalizedDraft.companyProfile.size)}
-          />
-        </dl>
-      </article>
-
-      <article className="organization-review-card">
-        <h3>Objetivos e maturidade</h3>
-        <dl>
-          <ReviewItem
-            label="Objetivos"
-            value={normalizedDraft.companyProfile.goals
-              .map((goal) => getGoalLabel(goal))
-              .join(", ")}
-          />
-          <ReviewItem
-            label="Maturidade"
-            value={getMaturityLabel(normalizedDraft.companyProfile.maturityLevel)}
-          />
-        </dl>
-      </article>
-
-      <article className="organization-review-card">
-        <h3>Contexto atual</h3>
-        <dl>
-          <ReviewItem
-            label="Desafios"
-            value={
-              normalizedDraft.companyProfile.currentChallenges.join(", ")
-              || "Nenhum desafio informado"
-            }
-          />
-        </dl>
-      </article>
-
-      <article className="organization-review-card">
-        <h3>Dados fiscais</h3>
-        <dl>
-          <ReviewItem
-            label="Data de abertura"
-            value={normalizedDraft.openingDate || "Não informada"}
-          />
-          <ReviewItem
-            label="Regime tributário"
-            value={normalizedDraft.taxRegime || "Não informado"}
-          />
-          <ReviewItem
-            label="CNAE principal"
-            value={normalizedDraft.primaryCnae || "Não informado"}
-          />
-          <ReviewItem
-            label="Inscrição estadual"
-            value={normalizedDraft.stateRegistration || "Não informada"}
-          />
-          <ReviewItem
-            label="Inscrição municipal"
-            value={normalizedDraft.municipalRegistration || "Não informada"}
-          />
-        </dl>
-      </article>
-    </div>
+    <section className="wizard-section">
+      <OrganizationProfileReview draft={normalizedDraft} />
+    </section>
   );
 
   if (!isWizard) {
     return (
-      <form className="organization-editor-form" onSubmit={submitForm}>
-        <section className="organization-form-section">
-          <header className="organization-form-section__header">
-            <div>
-              <p className="workspace-kicker">Perfil operacional</p>
-              <h3>Posicionamento e porte</h3>
-            </div>
-          </header>
-          {renderProfileSection()}
-        </section>
+      <form
+        className={`organization-editor-form${
+          isModalVariant ? " organization-editor-form--modal" : ""
+        }`}
+        onSubmit={submitForm}
+      >
+        <div
+          className={
+            isModalVariant
+              ? "app-modal__body app-modal__body--editor organization-profile-modal__body"
+              : undefined
+          }
+        >
+          <section className="organization-form-section">
+            <header className="organization-form-section__header">
+              <div>
+                <p className="workspace-kicker">Perfil operacional</p>
+                <h3>Posicionamento e porte</h3>
+              </div>
+            </header>
+            {renderProfileSection()}
+          </section>
 
-        <section className="organization-form-section">
-          <header className="organization-form-section__header">
-            <div>
-              <p className="workspace-kicker">Objetivos e maturidade</p>
-              <h3>Direção estratégica da conta</h3>
-            </div>
-          </header>
-          {renderGoalsSection()}
-        </section>
+          <section className="organization-form-section">
+            <header className="organization-form-section__header">
+              <div>
+                <p className="workspace-kicker">Objetivos e maturidade</p>
+                <h3>Direção estratégica da conta</h3>
+              </div>
+            </header>
+            {renderGoalsSection()}
+          </section>
 
-        <section className="organization-form-section">
-          <header className="organization-form-section__header">
-            <div>
-              <p className="workspace-kicker">Contexto atual</p>
-              <h3>Desafios percebidos pela equipe</h3>
-            </div>
-          </header>
-          {renderContextSection()}
-        </section>
+          <section className="organization-form-section">
+            <header className="organization-form-section__header">
+              <div>
+                <p className="workspace-kicker">Contexto atual</p>
+                <h3>Desafios percebidos pela equipe</h3>
+              </div>
+            </header>
+            {renderContextSection()}
+          </section>
 
-        <section className="organization-form-section">
-          <header className="organization-form-section__header">
-            <div>
-              <p className="workspace-kicker">Dados fiscais</p>
-              <h3>Informações cadastrais complementares</h3>
-            </div>
-          </header>
-          {renderFiscalSection()}
-        </section>
+          <section className="organization-form-section">
+            <header className="organization-form-section__header">
+              <div>
+                <p className="workspace-kicker">Dados fiscais</p>
+                <h3>Informações cadastrais complementares</h3>
+              </div>
+            </header>
+            {renderFiscalSection()}
+          </section>
 
-        {error ? <p className="form-error">{error}</p> : null}
-        <div className="organization-profile-form__actions">
+          {error ? <p className="form-error">{error}</p> : null}
+        </div>
+
+        <footer className="organization-profile-form__actions collaborator-form__footer">
+          {onCancel ? (
+            <button
+              className="button button--secondary"
+              disabled={isPending}
+              onClick={onCancel}
+              type="button"
+            >
+              Cancelar
+            </button>
+          ) : null}
           <button className="button" disabled={isPending} type="submit">
             {isPending ? "Salvando dados" : saveLabel}
           </button>
-          {cancelHref ? (
+          {!onCancel && cancelHref ? (
             isPending ? (
               <span
                 aria-disabled="true"
@@ -670,67 +640,92 @@ export function OrganizationProfileForm({
               </Link>
             )
           ) : null}
-        </div>
+        </footer>
       </form>
     );
   }
 
   return (
     <form className="onboarding-wizard" onSubmit={submitForm}>
-      <div className="onboarding-wizard__steps" aria-label="Etapas do onboarding">
-        {wizardSteps.map((step, index) => (
-          <div
-            className={`onboarding-step${
-              index === stepIndex ? " onboarding-step--active" : ""
-            }${index < stepIndex ? " onboarding-step--complete" : ""}`}
-            key={step.id}
-          >
-            <span className="onboarding-step__index">
-              {String(index + 1).padStart(2, "0")}
-            </span>
-            <div>
-              <strong>{step.label}</strong>
-              <p>{step.description}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-
       <div className="onboarding-wizard__panel">
+        <div
+          className="onboarding-wizard__progress"
+          aria-label="Progresso do onboarding"
+        >
+          {wizardSteps.map((step, index) => (
+            <span
+              className={`onboarding-wizard__progress-bar${
+                index <= stepIndex
+                  ? " onboarding-wizard__progress-bar--active"
+                  : ""
+              }`}
+              key={step.id}
+            />
+          ))}
+        </div>
+
         <header className="onboarding-wizard__header">
-          <p className="workspace-kicker">Etapa {stepIndex + 1} de {wizardSteps.length}</p>
           <h2>{activeStep.label}</h2>
           <p>{activeStep.description}</p>
         </header>
 
-        {activeStep.id === "profile" ? renderProfileSection() : null}
-        {activeStep.id === "goals" ? renderGoalsSection() : null}
-        {activeStep.id === "context" ? renderContextSection() : null}
-        {activeStep.id === "fiscal" ? renderFiscalSection() : null}
-        {activeStep.id === "review" ? renderReviewSection() : null}
+        <div className="onboarding-wizard__body">
+          {activeStep.id === "profile" ? renderProfileSection() : null}
+          {activeStep.id === "goals" ? renderGoalsSection() : null}
+          {activeStep.id === "context" ? renderContextSection() : null}
+          {activeStep.id === "fiscal" ? renderFiscalSection() : null}
+          {activeStep.id === "review" ? renderReviewSection() : null}
+        </div>
 
         {error ? <p className="form-error">{error}</p> : null}
 
-        <div className="onboarding-wizard__actions">
+        <footer className="onboarding-wizard__actions">
           <button
-            className="button button--secondary"
+            className="onboarding-wizard__nav onboarding-wizard__nav--back"
             disabled={isPending || stepIndex === 0}
             type="button"
             onClick={goBack}
           >
+            <svg fill="none" viewBox="0 0 24 24">
+              <path
+                d="M10 19 3 12m0 0 7-7m-7 7h18"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+              />
+            </svg>
             Voltar
           </button>
 
           {activeStep.id === "review" ? (
-            <button className="button" disabled={isPending} type="submit">
+            <button
+              className="onboarding-wizard__nav onboarding-wizard__nav--next"
+              disabled={isPending}
+              type="submit"
+            >
               {isPending ? "Finalizando onboarding" : saveLabel}
             </button>
           ) : (
-            <button className="button" disabled={isPending} type="button" onClick={goNext}>
-              Continuar
+            <button
+              className="onboarding-wizard__nav onboarding-wizard__nav--next"
+              disabled={isPending}
+              type="button"
+              onClick={goNext}
+            >
+              Próximo Passo
+              <svg fill="none" viewBox="0 0 24 24">
+                <path
+                  d="m14 5 7 7m0 0-7 7m7-7H3"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                />
+              </svg>
             </button>
           )}
-        </div>
+        </footer>
       </div>
     </form>
   );

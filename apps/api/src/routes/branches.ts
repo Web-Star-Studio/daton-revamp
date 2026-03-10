@@ -149,31 +149,6 @@ const ensureUniqueCode = async (
   }
 };
 
-const assertHeadquartersAvailability = async (
-  db: AppDbExecutor,
-  organizationId: string,
-  branchId?: string,
-) => {
-  const [existingHeadquarters] = await db
-    .select({ id: branches.id })
-    .from(branches)
-    .where(
-      and(
-        eq(branches.organizationId, organizationId),
-        eq(branches.isHeadquarters, true),
-        eq(branches.status, "active"),
-        branchId ? ne(branches.id, branchId) : undefined,
-      ),
-    )
-    .limit(1);
-
-  if (existingHeadquarters) {
-    throw new HTTPException(409, {
-      message: "Apenas uma filial matriz ativa é permitida.",
-    });
-  }
-};
-
 const assignBranchManager = async (
   db: AppDbExecutor,
   input: {
@@ -499,10 +474,6 @@ branchRoutes.post("/branches", async (c) => {
       throw new HTTPException(500, { message: "Não foi possível criar a filial." });
     }
 
-    if (branch.isHeadquarters) {
-      await assertHeadquartersAvailability(tx, organization.id, branch.id);
-    }
-
     const managerMemberId = await assignBranchManager(tx, {
       organizationId: organization.id,
       branchId: branch.id,
@@ -586,18 +557,6 @@ branchRoutes.patch(
       });
     }
 
-    if (input.status === "archived" && existingBranch.isHeadquarters) {
-      throw new HTTPException(400, {
-        message: "Promova outra filial antes de arquivar a matriz ativa.",
-      });
-    }
-
-    if (existingBranch.isHeadquarters && input.isHeadquarters === false) {
-      throw new HTTPException(400, {
-        message: "A matriz ativa não pode ser desmarcada sem promover outra filial.",
-      });
-    }
-
     await db.transaction(async (tx: AppDbExecutor) => {
       await tx
         .update(branches)
@@ -613,15 +572,12 @@ branchRoutes.patch(
           stateOrProvince: normalizeEmpty(input.stateOrProvince),
           postalCode: normalizeEmpty(input.postalCode),
           country: normalizeEmpty(input.country),
+          isHeadquarters: Boolean(input.isHeadquarters),
           parentBranchId: input.parentBranchId ?? null,
           status: input.status ?? existingBranch.status,
           updatedAt: new Date(),
         })
         .where(eq(branches.id, branchId));
-
-      if (input.isHeadquarters && !existingBranch.isHeadquarters) {
-        await assertHeadquartersAvailability(tx, organization.id, branchId);
-      }
 
       await assignBranchManager(tx, {
         organizationId: organization.id,

@@ -3,6 +3,8 @@
 import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
 
+import { ExceptionState } from "@/components/exception-state";
+
 export default function GlobalError({
   error,
   reset,
@@ -17,23 +19,12 @@ export default function GlobalError({
   return (
     <html lang="pt-BR">
       <body>
-        <main className="error-state">
-          <p className="eyebrow">Falha crítica</p>
-          <h1
-            style={{
-              fontFamily: "var(--font-serif), 'DM Serif Display', serif",
-              fontSize: "2.5rem",
-              fontWeight: 400,
-              margin: 0,
-            }}
-          >
-            O Daton não conseguiu recuperar a aplicação.
-          </h1>
-          <p style={{ color: "var(--ink-soft)", margin: 0 }}>{error.message}</p>
-          <button className="button" onClick={() => reset()} type="button">
-            Recarregar
-          </button>
-        </main>
+        <ExceptionState
+          errorMessage={error.digest ? `${error.message} · ref ${error.digest}` : error.message}
+          retryLabel="Recarregar"
+          title="O Daton não conseguiu recuperar a aplicação."
+          onRetry={() => reset()}
+        />
       </body>
     </html>
   );

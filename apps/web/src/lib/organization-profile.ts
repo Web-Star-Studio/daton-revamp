@@ -3,6 +3,7 @@ import {
   companySectors,
   companySizes,
   maturityLevels,
+  type UpdateOrganizationInput,
   type BusinessGoal,
   type CompanySector,
   type CompanySize,
@@ -66,7 +67,11 @@ export const sizeOptions: LabeledValue<CompanySize>[] = [
   { value: "small", label: "Pequena", description: "10 a 49 pessoas" },
   { value: "medium", label: "Média", description: "50 a 249 pessoas" },
   { value: "large", label: "Grande", description: "250 a 999 pessoas" },
-  { value: "xlarge", label: "Muito grande", description: "1000 a 4999 pessoas" },
+  {
+    value: "xlarge",
+    label: "Muito grande",
+    description: "1000 a 4999 pessoas",
+  },
   { value: "enterprise", label: "Enterprise", description: "5000+ pessoas" },
 ];
 
@@ -117,7 +122,8 @@ export const companyProfileOptionSets = {
 export const getSectorLabel = (value: CompanySector) => sectorLabelMap[value];
 export const getSizeLabel = (value: CompanySize) => sizeLabelMap[value];
 export const getGoalLabel = (value: BusinessGoal) => goalLabelMap[value];
-export const getMaturityLabel = (value: MaturityLevel) => maturityLabelMap[value];
+export const getMaturityLabel = (value: MaturityLevel) =>
+  maturityLabelMap[value];
 
 export const getOrganizationProfileDefaults = (
   organization: SessionOrganization,
@@ -140,6 +146,24 @@ export const getOrganizationProfileDefaults = (
     },
   };
 };
+
+const trimChallenges = (values: string[]) =>
+  values.map((value) => value.trim()).filter(Boolean);
+
+export const normalizeOrganizationProfileDraft = (
+  draft: OrganizationProfileDraft,
+): UpdateOrganizationInput => ({
+  openingDate: draft.openingDate.trim(),
+  taxRegime: draft.taxRegime.trim(),
+  primaryCnae: draft.primaryCnae.trim(),
+  stateRegistration: draft.stateRegistration.trim(),
+  municipalRegistration: draft.municipalRegistration.trim(),
+  companyProfile: {
+    ...draft.companyProfile,
+    customSector: draft.companyProfile.customSector.trim(),
+    currentChallenges: trimChallenges(draft.companyProfile.currentChallenges),
+  },
+});
 
 export const formatCompanySector = (
   sector: CompanySector,

@@ -205,11 +205,6 @@ export const createBootstrapOrganizationSchema = (options?: { allowFictional?: b
     adminFullName: trimmedString(2, 120),
     adminEmail: z.email(),
     password: z.string().min(8).max(128),
-    headquarters: z.object({
-      name: trimmedString(2, 120),
-      code: trimmedString(2, 32).regex(/^[A-Z0-9_-]+$/i, "Use letters, numbers, underscores, or dashes."),
-      legalIdentifier: createCnpjSchema(options),
-    }),
   });
 
 export const bootstrapOrganizationSchema = createBootstrapOrganizationSchema();
@@ -252,12 +247,25 @@ export const departmentIdSchema = z.object({
   departmentId: z.uuid(),
 });
 
+export const employeeIdSchema = z.object({
+  employeeId: z.uuid(),
+});
+
+export const positionIdSchema = z.object({
+  positionId: z.uuid(),
+});
+
 export const createDepartmentBaseSchema = () =>
   z.object({
     name: trimmedString(2, 120),
     code: trimmedString(2, 32).regex(/^[A-Z0-9_-]+$/i, "Use letters, numbers, underscores, or dashes."),
+    description: z.string().trim().max(1000).optional().or(z.literal("")),
+    parentDepartmentId: z.uuid().optional().nullable(),
+    managerEmployeeId: z.uuid().optional().nullable(),
     branchIds: z.array(z.uuid()).default([]),
     managerMemberId: z.uuid().optional().nullable(),
+    budget: z.number().nonnegative().optional().nullable(),
+    costCenter: z.string().trim().max(80).optional().or(z.literal("")),
     notes: z.string().trim().max(1000).optional().or(z.literal("")),
   });
 
@@ -269,6 +277,60 @@ export const createUpdateDepartmentSchema = () =>
     status: departmentStatusSchema.optional(),
   });
 export const updateDepartmentSchema = createUpdateDepartmentSchema();
+
+export const createEmployeeBaseSchema = () =>
+  z.object({
+    employeeCode: z.string().trim().max(64).optional().or(z.literal("")),
+    cpf: z.string().trim().max(20).optional().or(z.literal("")),
+    fullName: trimmedString(2, 160),
+    email: z.email().optional().or(z.literal("")),
+    phone: z.string().trim().max(40).optional().or(z.literal("")),
+    departmentId: z.uuid().optional().nullable(),
+    positionId: z.uuid().optional().nullable(),
+    hireDate: z
+      .string()
+      .trim()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Informe uma data válida."),
+    birthDate: optionalIsoDateString,
+    gender: z.string().trim().max(40).optional().or(z.literal("")),
+    ethnicity: z.string().trim().max(80).optional().or(z.literal("")),
+    educationLevel: z.string().trim().max(80).optional().or(z.literal("")),
+    salary: z.number().nonnegative().optional().nullable(),
+    employmentType: trimmedString(2, 80),
+    status: trimmedString(2, 40),
+    managerId: z.uuid().optional().nullable(),
+    location: z.string().trim().max(160).optional().or(z.literal("")),
+    branchId: z.uuid().optional().nullable(),
+    terminationDate: optionalIsoDateString,
+    notes: z.string().trim().max(2000).optional().or(z.literal("")),
+  });
+
+export const employeeBaseSchema = createEmployeeBaseSchema();
+export const createEmployeeSchema = createEmployeeBaseSchema();
+export const createCreateEmployeeSchema = createEmployeeBaseSchema;
+export const createUpdateEmployeeSchema = () => createEmployeeBaseSchema();
+export const updateEmployeeSchema = createUpdateEmployeeSchema();
+
+export const createPositionBaseSchema = () =>
+  z.object({
+    departmentId: z.uuid().optional().nullable(),
+    title: trimmedString(2, 120),
+    description: z.string().trim().max(2000).optional().or(z.literal("")),
+    level: z.string().trim().max(80).optional().or(z.literal("")),
+    salaryRangeMin: z.number().nonnegative().optional().nullable(),
+    salaryRangeMax: z.number().nonnegative().optional().nullable(),
+    requirements: z.array(z.string().trim().min(1).max(240)).default([]),
+    responsibilities: z.array(z.string().trim().min(1).max(240)).default([]),
+    reportsToPositionId: z.uuid().optional().nullable(),
+    requiredEducationLevel: z.string().trim().max(120).optional().or(z.literal("")),
+    requiredExperienceYears: z.number().int().nonnegative().optional().nullable(),
+  });
+
+export const positionBaseSchema = createPositionBaseSchema();
+export const createPositionSchema = createPositionBaseSchema();
+export const createCreatePositionSchema = createPositionBaseSchema;
+export const createUpdatePositionSchema = () => createPositionBaseSchema();
+export const updatePositionSchema = createUpdatePositionSchema();
 
 const normalizeOptionalString = (value?: string | null) => {
   const trimmed = value?.trim();
@@ -382,10 +444,35 @@ export const branchSummarySchema = z.object({
   status: branchStatusSchema,
 });
 
+export const departmentReferenceSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+});
+
+export const employeeReferenceSchema = z.object({
+  id: z.uuid(),
+  fullName: z.string(),
+});
+
+export const positionReferenceSchema = z.object({
+  id: z.uuid(),
+  title: z.string(),
+});
+
+export const branchReferenceSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+});
+
 export const departmentSummarySchema = z.object({
   id: z.uuid(),
   organizationId: z.uuid(),
   name: z.string(),
+  description: z.string().nullable(),
+  parentDepartmentId: z.uuid().nullable(),
+  managerEmployeeId: z.uuid().nullable(),
+  budget: z.number().nullable(),
+  costCenter: z.string().nullable(),
   code: z.string(),
   status: departmentStatusSchema,
   managerMemberId: z.uuid().nullable(),
@@ -393,9 +480,72 @@ export const departmentSummarySchema = z.object({
   notes: z.string().nullable(),
   branchIds: z.array(z.uuid()),
   branchNames: z.array(z.string()),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  manager: employeeReferenceSchema.nullable(),
+  parentDepartment: departmentReferenceSchema.nullable(),
+  subDepartments: z.array(departmentReferenceSchema),
+  employeeCount: z.number().int().nonnegative(),
 });
 
 export const departmentListSchema = z.array(departmentSummarySchema);
+
+export const employeeSummarySchema = z.object({
+  id: z.uuid(),
+  organizationId: z.uuid(),
+  employeeCode: z.string().nullable(),
+  cpf: z.string().nullable(),
+  fullName: z.string(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  departmentId: z.uuid().nullable(),
+  departmentName: z.string().nullable(),
+  positionId: z.uuid().nullable(),
+  positionName: z.string().nullable(),
+  hireDate: z.string(),
+  birthDate: z.string().nullable(),
+  gender: z.string().nullable(),
+  ethnicity: z.string().nullable(),
+  educationLevel: z.string().nullable(),
+  salary: z.number().nullable(),
+  employmentType: z.string(),
+  status: z.string(),
+  managerId: z.uuid().nullable(),
+  location: z.string().nullable(),
+  branchId: z.uuid().nullable(),
+  terminationDate: z.string().nullable(),
+  notes: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  branch: branchReferenceSchema.nullable(),
+  department: departmentReferenceSchema.nullable(),
+  position: positionReferenceSchema.nullable(),
+  manager: employeeReferenceSchema.nullable(),
+});
+
+export const employeeListSchema = z.array(employeeSummarySchema);
+
+export const positionSummarySchema = z.object({
+  id: z.uuid(),
+  organizationId: z.uuid(),
+  departmentId: z.uuid().nullable(),
+  title: z.string(),
+  description: z.string().nullable(),
+  level: z.string().nullable(),
+  salaryRangeMin: z.number().nullable(),
+  salaryRangeMax: z.number().nullable(),
+  requirements: z.array(z.string()),
+  responsibilities: z.array(z.string()),
+  reportsToPositionId: z.uuid().nullable(),
+  requiredEducationLevel: z.string().nullable(),
+  requiredExperienceYears: z.number().int().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  department: departmentReferenceSchema.nullable(),
+  reportsToPosition: positionReferenceSchema.nullable(),
+});
+
+export const positionListSchema = z.array(positionSummarySchema);
 
 export const notificationSummarySchema = z.object({
   id: z.uuid(),
@@ -422,10 +572,16 @@ export type CreateBranchInput = z.infer<typeof createBranchSchema>;
 export type UpdateBranchInput = z.infer<typeof updateBranchSchema>;
 export type CreateDepartmentInput = z.infer<typeof createDepartmentSchema>;
 export type UpdateDepartmentInput = z.infer<typeof updateDepartmentSchema>;
+export type CreateEmployeeInput = z.infer<typeof createEmployeeSchema>;
+export type UpdateEmployeeInput = z.infer<typeof updateEmployeeSchema>;
+export type CreatePositionInput = z.infer<typeof createPositionSchema>;
+export type UpdatePositionInput = z.infer<typeof updatePositionSchema>;
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
 export type BranchSummary = z.infer<typeof branchSummarySchema>;
 export type DepartmentSummary = z.infer<typeof departmentSummarySchema>;
+export type EmployeeSummary = z.infer<typeof employeeSummarySchema>;
+export type PositionSummary = z.infer<typeof positionSummarySchema>;
 export type OnboardingCompanyProfile = z.infer<typeof onboardingCompanyProfileSchema>;
 export type OnboardingData = z.infer<typeof onboardingDataSchema>;
 export type OrganizationMemberSummary = z.infer<

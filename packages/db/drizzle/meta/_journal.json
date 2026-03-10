@@ -29,6 +29,13 @@
       "when": 1773097206676,
       "tag": "0003_public_wild_child",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1773165600000,
+      "tag": "0004_tense_scarlet_spider",
+      "breakpoints": true
     }
   ]
 }

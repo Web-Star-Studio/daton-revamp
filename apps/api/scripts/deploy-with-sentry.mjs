@@ -30,6 +30,17 @@ const normalizeConfigArgs = (args) => {
 
 const args = normalizeConfigArgs(cliArgs);
 
+const requireEnv = (name) => {
+  const value = process.env[name];
+
+  if (!value) {
+    console.error(`[deploy:api] Missing required environment variable: ${name}`);
+    process.exit(1);
+  }
+
+  return value;
+};
+
 const run = (command, commandArgs, options = {}) => {
   const result = spawnSync(command, commandArgs, {
     cwd,
@@ -73,6 +84,11 @@ const gitRelease =
 if (gitRelease && !process.env.SENTRY_RELEASE) {
   process.env.SENTRY_RELEASE = gitRelease;
 }
+
+requireEnv("BETTER_AUTH_URL");
+requireEnv("NEXT_PUBLIC_APP_URL");
+requireEnv("NEXT_PUBLIC_API_URL");
+requireEnv("CORS_ORIGIN");
 
 const hasUploadConfiguration =
   Boolean(process.env.SENTRY_AUTH_TOKEN) &&

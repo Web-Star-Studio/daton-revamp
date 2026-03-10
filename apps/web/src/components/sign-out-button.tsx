@@ -22,7 +22,7 @@ export function SignOutButton() {
           startTransition(async () => {
             try {
               await authClient.signOut();
-              router.replace("/sign-in");
+              router.replace("/auth?mode=sign-in");
               router.refresh();
             } catch (signOutError) {
               setError(signOutError instanceof Error ? signOutError.message : "Não foi possível sair.");

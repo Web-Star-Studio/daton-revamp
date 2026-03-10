@@ -1,22 +1,24 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { OrganizationOnboardingWaiting } from "@/components/organization-onboarding-waiting";
 import { OrganizationProfileForm } from "@/components/organization-profile-form";
+import { OrganizationProfileReview } from "@/components/organization-profile-review";
+import {
+  getOrganizationProfileDefaults,
+  normalizeOrganizationProfileDraft,
+} from "@/lib/organization-profile";
 import { requireSession } from "@/lib/session";
 
 export default async function OrganizationOnboardingPage() {
   const session = await requireSession();
 
   if (!session) {
-    redirect("/sign-in");
+    redirect("/auth?mode=sign-in");
   }
 
   if (!session.organization) {
-    redirect("/create-organization");
-  }
-
-  if (session.organization.onboardingStatus === "completed") {
-    redirect("/app/settings/organization");
+    redirect("/auth?mode=sign-up");
   }
 
   const canManageOrganization = session.effectiveRoles.some(
@@ -24,68 +26,63 @@ export default async function OrganizationOnboardingPage() {
   );
   const organizationName =
     session.organization.tradeName ?? session.organization.legalName;
+  const organizationReview = normalizeOrganizationProfileDraft(
+    getOrganizationProfileDefaults(session.organization),
+  );
 
   return (
-    <main className="auth-shell auth-shell--fullbleed">
-      <section className="auth-panel auth-panel--immersive">
-        <div className="auth-panel__lead auth-panel__lead--visual organization-onboarding-lead">
-          <div className="auth-panel__brand">
-            <span className="brandmark__wordmark" style={{ color: "#fff" }}>
-              Daton
-            </span>
-          </div>
-
-          <div className="organization-onboarding-lead__copy">
-            <p className="eyebrow">Onboarding da organização</p>
-            <h1>
-              Estruture {organizationName} antes de liberar o ambiente
-              operacional.
-            </h1>
-            <p>
-              Esse wizard reúne contexto operacional, objetivos e dados
-              cadastrais em uma única passagem, mantendo coerência com o
-              workspace que será aberto em seguida.
+    <main className="organization-onboarding-page organization-onboarding-page--glass">
+      {session.organization.onboardingStatus === "completed" ? (
+        <section className="organization-onboarding-stage organization-onboarding-stage--waiting">
+          <article className="organization-onboarding-waiting organization-onboarding-waiting--completed">
+            <h1>Revise os dados antes de seguir</h1>
+            <p className="organization-onboarding-waiting__intro">
+              Seu ambiente já foi liberado. Os dados informados no onboarding
+              ficam visíveis aqui para uma última checagem antes de entrar no
+              app.
             </p>
-          </div>
-
-          <ul className="signal-list">
-            <li>Fluxo dedicado, sem distrações do `/app`.</li>
-            <li>As informações ficam editáveis depois em Organização.</li>
-            <li>Conclua o perfil para liberar o workspace principal.</li>
-          </ul>
-        </div>
-
-        <div className="auth-panel__form auth-panel__form--chrome organization-onboarding-shell">
-          <p className="form-kicker">Preparar organização</p>
-          {canManageOrganization ? (
-            <>
-              <p className="organization-onboarding-shell__intro">
-                Preencha os blocos abaixo uma única vez. Ao concluir, o Daton
-                usa esse contexto como base do ambiente.
-              </p>
-              <OrganizationProfileForm
-                mode="wizard"
-                onSuccessHref="/app/settings/organization"
-                organization={session.organization}
-                saveLabel="Concluir e entrar no app"
-              />
-            </>
-          ) : (
-            <article className="organization-onboarding-waiting">
-              <OrganizationOnboardingWaiting />
-              <h2>Ambiente aguardando liberação</h2>
-              <p>
-                O onboarding desta organização ainda não foi concluído por um
-                responsável com permissão de gestão.
-              </p>
-              <p>
-                Assim que o perfil operacional e os dados cadastrais forem
-                finalizados, o acesso ao `/app` será liberado automaticamente.
-              </p>
-            </article>
-          )}
-        </div>
-      </section>
+            <OrganizationProfileReview draft={organizationReview} />
+            <div className="organization-profile-form__actions">
+              <Link className="button" href="/app/settings/organization">
+                Entrar no app
+              </Link>
+              <Link
+                className="button button--secondary"
+                href="/app/settings/organization"
+              >
+                Editar dados da organização
+              </Link>
+            </div>
+          </article>
+        </section>
+      ) : canManageOrganization ? (
+        <section className="organization-onboarding-stage">
+          <OrganizationProfileForm
+            mode="wizard"
+            onSuccessHref="/onboarding/organization"
+            organization={session.organization}
+            saveLabel="Concluir onboarding"
+          />
+        </section>
+      ) : (
+        <section className="organization-onboarding-stage organization-onboarding-stage--waiting">
+          <article className="organization-onboarding-waiting">
+            <OrganizationOnboardingWaiting />
+            <p className="organization-onboarding-waiting__eyebrow">
+              Onboarding da organização
+            </p>
+            <h1>{organizationName}</h1>
+            <p>
+              O onboarding ainda não foi concluído por um responsável com
+              permissão de gestão.
+            </p>
+            <p>
+              Assim que o perfil operacional e os dados cadastrais forem
+              finalizados, o acesso ao `/app` será liberado automaticamente.
+            </p>
+          </article>
+        </section>
+      )}
     </main>
   );
 }

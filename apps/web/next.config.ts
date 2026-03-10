@@ -10,11 +10,34 @@ import {
 
 const sentryRelease = getWebSentryRelease();
 const hasSentryUpload = hasSentryBuildConfiguration();
+const requiredUrlEnvKeys = [
+  "NEXT_PUBLIC_APP_URL",
+  "NEXT_PUBLIC_API_URL",
+  "INTERNAL_API_URL",
+] as const;
+const missingUrlEnvKeys = requiredUrlEnvKeys.filter(
+  (key) => !process.env[key]?.trim(),
+);
+
+if (missingUrlEnvKeys.length > 0) {
+  throw new Error(
+    `Missing required environment variables for apps/web/next.config.ts: ${missingUrlEnvKeys.join(", ")}`,
+  );
+}
+
+const requiredUrlEnv = {
+  NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL!.trim(),
+  NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL!.trim(),
+  INTERNAL_API_URL: process.env.INTERNAL_API_URL!.trim(),
+};
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   env: {
+    NEXT_PUBLIC_APP_URL: requiredUrlEnv.NEXT_PUBLIC_APP_URL,
+    NEXT_PUBLIC_API_URL: requiredUrlEnv.NEXT_PUBLIC_API_URL,
+    INTERNAL_API_URL: requiredUrlEnv.INTERNAL_API_URL,
     SENTRY_ENVIRONMENT: getWebSentryEnvironment(),
     SENTRY_RELEASE: sentryRelease ?? "",
     SENTRY_TRACES_SAMPLE_RATE: String(getWebSentryTracesSampleRate()),

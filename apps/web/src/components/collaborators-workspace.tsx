@@ -2,157 +2,218 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { startTransition, useDeferredValue, useMemo, useState } from "react";
+import {
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
-import type { Role } from "@daton/contracts";
+import type {
+  CreateEmployeeInput,
+  CreatePositionInput,
+  UpdateEmployeeInput,
+  UpdatePositionInput,
+} from "@daton/contracts";
 
 import {
-  describeAccessRole,
-  formatAccessRole,
-  formatBranchScope,
-  formatMemberStatus,
-  getBranchNamesForMember,
-} from "@/lib/organization-members";
-import type { ServerBranch, ServerOrganizationMember } from "@/lib/server-api";
+  createEmployee,
+  createPosition,
+  updatePosition,
+} from "@/lib/api";
+import type {
+  ServerBranch,
+  ServerDepartment,
+  ServerEmployee,
+  ServerPosition,
+} from "@/lib/server-api";
+
+import { EditIcon } from "./app-icons";
+import { EmployeeEditorModal } from "./employee-editor-modal";
+import { PositionEditorModal } from "./position-editor-modal";
 
 type CollaboratorsWorkspaceProps = {
   branches: ServerBranch[];
-  members: ServerOrganizationMember[];
+  canManagePeople: boolean;
+  departments: ServerDepartment[];
+  employees: ServerEmployee[];
+  positions: ServerPosition[];
 };
 
-type RoleSummary = {
-  branchIds: string[];
-  hasGlobalAccess: boolean;
-  key: Role;
-  members: ServerOrganizationMember[];
-};
+type WorkspaceTab = "employees" | "positions";
 
 export function CollaboratorsWorkspace({
   branches,
-  members,
+  canManagePeople,
+  departments,
+  employees: initialEmployees,
+  positions: initialPositions,
 }: CollaboratorsWorkspaceProps) {
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [searchValue, setSearchValue] = useState("");
-  const [roleSearchValue, setRoleSearchValue] = useState("");
-  const deferredSearchValue = useDeferredValue(searchValue);
-  const deferredRoleSearchValue = useDeferredValue(roleSearchValue);
-  const activeTab = searchParams.get("tab") === "roles" ? "roles" : "overview";
-  const selectedRoleId = searchParams.get("role") ?? "";
-  const activeMembers = members.filter((member) => member.status === "active").length;
-  const representedBranches = new Set(
-    members.flatMap((member) => member.branchIds).filter(Boolean),
-  ).size;
-  const membersWithGlobalAccess = members.filter(
-    (member) => member.hasGlobalAccess,
-  ).length;
+  const [employees, setEmployees] = useState(initialEmployees);
+  const [positions, setPositions] = useState(initialPositions);
+  const [employeeSearchValue, setEmployeeSearchValue] = useState("");
+  const [positionSearchValue, setPositionSearchValue] = useState("");
+  const [employeeError, setEmployeeError] = useState<string | null>(null);
+  const [positionError, setPositionError] = useState<string | null>(null);
+  const [editingPosition, setEditingPosition] = useState<ServerPosition | null>(null);
+  const deferredEmployeeSearch = useDeferredValue(employeeSearchValue);
+  const deferredPositionSearch = useDeferredValue(positionSearchValue);
+  const activeTab = searchParams.get("tab") === "positions" ? "positions" : "employees";
+  const selectedPositionId = searchParams.get("position") ?? "";
+  const createMode = searchParams.get("create");
+  const isEmployeeModalOpen =
+    canManagePeople && activeTab === "employees" && createMode === "employee";
+  const isPositionCreateOpen =
+    canManagePeople && activeTab === "positions" && createMode === "position";
+  const isPositionModalOpen = isPositionCreateOpen || Boolean(editingPosition);
 
-  const filteredMembers = useMemo(() => {
-    const normalizedSearch = deferredSearchValue.trim().toLocaleLowerCase("pt-BR");
+  useEffect(() => {
+    setEmployees(initialEmployees);
+  }, [initialEmployees]);
 
-    if (!normalizedSearch) {
-      return members;
+  useEffect(() => {
+    setPositions(initialPositions);
+  }, [initialPositions]);
+
+  useEffect(() => {
+    if (activeTab !== "positions") {
+      setEditingPosition(null);
     }
+  }, [activeTab]);
 
-    return members.filter((member) =>
-      [
-        member.fullName,
-        member.email,
-        member.roles.map((role) => formatAccessRole(role)).join(" "),
-        formatBranchScope(member, branches),
-      ]
-        .join(" ")
-        .toLocaleLowerCase("pt-BR")
-        .includes(normalizedSearch),
-    );
-  }, [branches, deferredSearchValue, members]);
-
-  const roleSummaries = useMemo(() => {
-    const summaries = new Map<string, RoleSummary>();
-
-    members.forEach((member) => {
-      member.roles.forEach((role) => {
-        const current = summaries.get(role);
-
-        if (current) {
-          current.members.push(member);
-          current.hasGlobalAccess ||= member.hasGlobalAccess;
-          member.branchIds.forEach((branchId) => {
-            if (!current.branchIds.includes(branchId)) {
-              current.branchIds.push(branchId);
-            }
-          });
-          return;
-        }
-
-        summaries.set(role, {
-          branchIds: [...member.branchIds],
-          hasGlobalAccess: member.hasGlobalAccess,
-          key: role,
-          members: [member],
-        });
-      });
-    });
-
-    return Array.from(summaries.values()).sort((left, right) =>
-      formatAccessRole(left.key).localeCompare(formatAccessRole(right.key), "pt-BR"),
-    );
-  }, [members]);
-
-  const filteredRoles = useMemo(() => {
-    const normalizedSearch = deferredRoleSearchValue
+  const filteredEmployees = useMemo(() => {
+    const normalizedSearch = deferredEmployeeSearch
       .trim()
       .toLocaleLowerCase("pt-BR");
 
     if (!normalizedSearch) {
-      return roleSummaries;
+      return employees;
     }
 
-    return roleSummaries.filter((role) =>
+    return employees.filter((employee) =>
       [
-        formatAccessRole(role.key),
-        describeAccessRole(role.key),
-        role.members.map((member) => member.fullName).join(" "),
+        employee.employeeCode ?? "",
+        employee.fullName,
+        employee.email ?? "",
+        employee.positionName ?? "",
+        employee.departmentName ?? "",
+        employee.branch?.name ?? "",
+        employee.manager?.fullName ?? "",
+        employee.employmentType,
+        employee.status,
       ]
         .join(" ")
         .toLocaleLowerCase("pt-BR")
         .includes(normalizedSearch),
     );
-  }, [deferredRoleSearchValue, roleSummaries]);
+  }, [deferredEmployeeSearch, employees]);
 
-  const selectedRole = filteredRoles.find((role) => role.key === selectedRoleId) ?? null;
+  const filteredPositions = useMemo(() => {
+    const normalizedSearch = deferredPositionSearch
+      .trim()
+      .toLocaleLowerCase("pt-BR");
+
+    if (!normalizedSearch) {
+      return positions;
+    }
+
+    return positions.filter((position) =>
+      [
+        position.title,
+        position.department?.name ?? "",
+        position.level ?? "",
+        position.description ?? "",
+        position.requiredEducationLevel ?? "",
+        position.reportsToPosition?.title ?? "",
+        position.requirements.join(" "),
+        position.responsibilities.join(" "),
+      ]
+        .join(" ")
+        .toLocaleLowerCase("pt-BR")
+        .includes(normalizedSearch),
+    );
+  }, [deferredPositionSearch, positions]);
+
+  const selectedPosition =
+    filteredPositions.find((position) => position.id === selectedPositionId) ??
+    filteredPositions[0] ??
+    null;
 
   const tabs = [
     {
-      key: "overview",
+      key: "employees",
       label: "Colaboradores",
-      href: pathname,
+      href: buildTabHref(pathname, searchParams, "employees"),
     },
     {
-      key: "roles",
-      label: "Perfis de acesso",
-      href: `${pathname}?tab=roles`,
+      key: "positions",
+      label: "Cargos",
+      href: buildTabHref(pathname, searchParams, "positions"),
     },
   ] as const;
 
-  function toggleRoleSelection(roleId: string) {
+  function replaceSearchParams(
+    update: (nextSearchParams: URLSearchParams) => void,
+  ) {
     const nextSearchParams = new URLSearchParams(searchParams.toString());
-    nextSearchParams.set("tab", "roles");
-
-    if (selectedRoleId === roleId) {
-      nextSearchParams.delete("role");
-    } else {
-      nextSearchParams.set("role", roleId);
-    }
-
-    const nextQuery = nextSearchParams.toString();
+    update(nextSearchParams);
+    const query = nextSearchParams.toString();
 
     startTransition(() => {
-      router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, {
+      router.replace(query ? `${pathname}?${query}` : pathname, {
         scroll: false,
       });
     });
+  }
+
+  async function handleEmployeeSubmit(
+    payload: CreateEmployeeInput | UpdateEmployeeInput,
+  ) {
+    setEmployeeError(null);
+
+    try {
+      const savedEmployee = await createEmployee(payload as CreateEmployeeInput);
+      setEmployees((current) => upsertEmployee(current, savedEmployee));
+      router.refresh();
+      replaceSearchParams((nextSearchParams) => {
+        nextSearchParams.delete("create");
+      });
+    } catch (error) {
+      setEmployeeError(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível salvar o colaborador.",
+      );
+    }
+  }
+
+  async function handlePositionSubmit(
+    payload: CreatePositionInput | UpdatePositionInput,
+  ) {
+    setPositionError(null);
+
+    try {
+      const savedPosition = editingPosition
+        ? await updatePosition(editingPosition.id, payload as UpdatePositionInput)
+        : await createPosition(payload as CreatePositionInput);
+
+      setPositions((current) => upsertPosition(current, savedPosition));
+      setEditingPosition(null);
+      router.refresh();
+      replaceSearchParams((nextSearchParams) => {
+        nextSearchParams.set("tab", "positions");
+        nextSearchParams.set("position", savedPosition.id);
+        nextSearchParams.delete("create");
+      });
+    } catch (error) {
+      setPositionError(
+        error instanceof Error ? error.message : "Não foi possível salvar o cargo.",
+      );
+    }
   }
 
   return (
@@ -161,7 +222,9 @@ export function CollaboratorsWorkspace({
         {tabs.map((tab) => (
           <Link
             aria-current={activeTab === tab.key ? "page" : undefined}
-            className={`workspace-tabs__link${activeTab === tab.key ? " workspace-tabs__link--active" : ""}`}
+            className={`workspace-tabs__link${
+              activeTab === tab.key ? " workspace-tabs__link--active" : ""
+            }`}
             href={tab.href}
             key={tab.key}
           >
@@ -172,75 +235,58 @@ export function CollaboratorsWorkspace({
 
       <article className="detail-grid collaborators-page__grid">
         <div className="content-panel content-panel--fill">
-          {activeTab === "overview" ? (
+          {activeTab === "employees" ? (
             <>
               <div className="section-heading collaborators-panel__header">
                 <div className="collaborators-panel__filters collaborators-panel__filters--single">
                   <label className="collaborators-field collaborators-field--search">
                     <span>Buscar</span>
                     <input
-                      onChange={(event) => setSearchValue(event.currentTarget.value)}
-                      placeholder="Nome, e-mail, perfil de acesso ou unidade"
+                      onChange={(event) => setEmployeeSearchValue(event.currentTarget.value)}
+                      placeholder="Nome, e-mail, departamento, cargo ou unidade"
                       type="search"
-                      value={searchValue}
+                      value={employeeSearchValue}
                     />
                   </label>
                 </div>
               </div>
 
-              {filteredMembers.length > 0 ? (
+              {employeeError ? (
+                <p className="collaborators-panel__feedback">{employeeError}</p>
+              ) : null}
+
+              {filteredEmployees.length > 0 ? (
                 <div className="collaborators-table">
                   <div className="collaborators-table__head">
-                    <span>Colaborador</span>
-                    <span>Perfis de acesso</span>
-                    <span>Escopo</span>
+                    <span>Nome</span>
+                    <span>Cargo</span>
+                    <span>Lotação</span>
                     <span>Status</span>
                   </div>
                   <ul className="collaborators-table__body">
-                    {filteredMembers.map((member) => (
-                      <li key={member.id}>
+                    {filteredEmployees.map((employee) => (
+                      <li key={employee.id}>
                         <Link
                           className="collaborators-row collaborators-row--interactive"
-                          href={`/app/social/collaborators/${member.id}`}
+                          href={`/app/social/collaborators/${employee.id}`}
                         >
                           <div className="collaborators-row__primary">
-                            <strong>{member.fullName}</strong>
-                            <span>{member.email}</span>
-                            <span>{member.userId}</span>
+                            <strong>{employee.fullName}</strong>
+                            <span>{employee.email || employee.employeeCode || "Sem e-mail cadastrado"}</span>
                           </div>
                           <div className="collaborators-row__secondary">
-                            <strong>
-                              {member.roles.length > 0
-                                ? member.roles.map((role) => formatAccessRole(role)).join(", ")
-                                : "Sem perfis atribuídos"}
-                            </strong>
-                            <span>
-                              {member.roles.length > 0
-                                ? member.roles.map((role) => describeAccessRole(role)).join(" ")
-                                : "Nenhum papel de acesso ativo foi encontrado para este membro."}
-                            </span>
+                            <strong>{employee.positionName || "Cargo não definido"}</strong>
+                            <span>{employee.departmentName || "Sem departamento vinculado"}</span>
+                            <span>{employee.employmentType}</span>
                           </div>
                           <div className="collaborators-row__branch">
-                            <strong>{formatBranchScope(member, branches)}</strong>
-                            <span>
-                              {member.managedBranchIds.length > 0
-                                ? "Possui gestão ativa de unidade."
-                                : "Sem gestão de unidade vinculada."}
-                            </span>
-                            <span>
-                              {getBranchNamesForMember(member, branches).length > 0
-                                ? getBranchNamesForMember(member, branches).join(", ")
-                                : "Sem unidade específica vinculada"}
-                            </span>
+                            <strong>{employee.branch?.name || "Sem unidade vinculada"}</strong>
+                            <span>{employee.manager?.fullName || "Sem gestor definido"}</span>
+                            <span>{employee.location || "Sem localização complementar"}</span>
                           </div>
                           <div className="collaborators-row__status">
-                            <strong>{formatMemberStatus(member.status)}</strong>
-                            <span>
-                              {member.hasGlobalAccess
-                                ? "Acesso organizacional amplo"
-                                : "Acesso restrito ao escopo listado"}
-                            </span>
-                            <span>{member.id}</span>
+                            <strong>{employee.status}</strong>
+                            <span>Admissão em {formatDate(employee.hireDate)}</span>
                           </div>
                         </Link>
                       </li>
@@ -250,10 +296,7 @@ export function CollaboratorsWorkspace({
               ) : (
                 <div className="collaborators-empty-state">
                   <strong>Nenhum colaborador encontrado</strong>
-                  <p>
-                    A busca atual não retornou membros da organização com base
-                    nos dados reais da API.
-                  </p>
+                  <p>A busca atual não retornou colaboradores da base de RH.</p>
                 </div>
               )}
             </>
@@ -264,63 +307,67 @@ export function CollaboratorsWorkspace({
                   <label className="collaborators-field collaborators-field--search">
                     <span>Buscar</span>
                     <input
-                      onChange={(event) =>
-                        setRoleSearchValue(event.currentTarget.value)
-                      }
-                      placeholder="Perfil, descrição ou colaborador"
+                      onChange={(event) => setPositionSearchValue(event.currentTarget.value)}
+                      placeholder="Cargo, departamento, nível ou requisito"
                       type="search"
-                      value={roleSearchValue}
+                      value={positionSearchValue}
                     />
                   </label>
                 </div>
               </div>
 
-              {filteredRoles.length > 0 ? (
+              {positionError ? (
+                <p className="collaborators-panel__feedback">{positionError}</p>
+              ) : null}
+
+              {filteredPositions.length > 0 ? (
                 <div className="collaborators-table collaborators-table--roles">
                   <div className="collaborators-table__head collaborators-table__head--roles">
-                    <span>Perfil</span>
-                    <span>Descrição</span>
-                    <span>Membros vinculados</span>
+                    <span>Cargo</span>
+                    <span>Departamento</span>
+                    <span>Faixa</span>
+                    <span>Escopo</span>
                   </div>
                   <ul className="collaborators-table__body">
-                    {filteredRoles.map((role) => (
-                      <li key={role.key}>
+                    {filteredPositions.map((position) => (
+                      <li key={position.id}>
                         <button
                           className={`collaborators-row collaborators-row--interactive collaborators-row--roles${
-                            selectedRole?.key === role.key
+                            selectedPosition?.id === position.id
                               ? " collaborators-row--selected"
                               : ""
                           }`}
-                          onClick={() => toggleRoleSelection(role.key)}
+                          onClick={() =>
+                            replaceSearchParams((nextSearchParams) => {
+                              nextSearchParams.set("tab", "positions");
+                              nextSearchParams.set("position", position.id);
+                              nextSearchParams.delete("create");
+                            })
+                          }
                           type="button"
                         >
                           <div className="collaborators-row__primary">
-                            <strong>{formatAccessRole(role.key)}</strong>
-                            <span>{describeAccessRole(role.key)}</span>
-                            <span>{role.key}</span>
+                            <strong>{position.title}</strong>
+                            <span>{position.description || "Sem descrição cadastrada."}</span>
                           </div>
                           <div className="collaborators-row__secondary">
-                            <strong>
-                              {role.hasGlobalAccess
-                                ? "Todas as unidades ativas"
-                                : `${role.branchIds.length} unidade${role.branchIds.length === 1 ? "" : "s"} com escopo`}
-                            </strong>
+                            <strong>{position.department?.name || "Sem departamento"}</strong>
+                            <span>{position.level || "Nível não definido"}</span>
                             <span>
-                              {role.hasGlobalAccess
-                                ? "Há pelo menos um membro com acesso global."
-                                : "Escopo agregado a partir dos vínculos reais dos membros."}
+                              {position.reportsToPosition?.title || "Sem cargo superior"}
                             </span>
                           </div>
                           <div className="collaborators-row__branch">
-                            <strong>
-                              {role.members.length} membro
-                              {role.members.length === 1 ? "" : "s"}
-                            </strong>
+                            <strong>{formatSalaryRange(position)}</strong>
                             <span>
-                              {role.members
-                                .slice(0, 3)
-                                .map((member) => member.fullName)
-                                .join(", ") || "Nenhum membro ativo"}
+                              {position.requiredEducationLevel || "Sem escolaridade mínima"}
+                            </span>
+                            <span>{formatExperience(position.requiredExperienceYears)}</span>
+                          </div>
+                          <div className="collaborators-row__status">
+                            <strong>{position.requirements.length} requisitos</strong>
+                            <span>
+                              {position.responsibilities.length} responsabilidades principais
                             </span>
                           </div>
                         </button>
@@ -330,45 +377,234 @@ export function CollaboratorsWorkspace({
                 </div>
               ) : (
                 <div className="collaborators-empty-state">
-                  <strong>Nenhum perfil encontrado</strong>
-                  <p>
-                    Não há perfis de acesso reais compatíveis com a busca atual.
-                  </p>
+                  <strong>Nenhum cargo encontrado</strong>
+                  <p>A busca atual não retornou cargos persistidos na organização.</p>
                 </div>
               )}
-
-              {selectedRole ? (
-                <div className="content-panel collaborator-profile__notes-panel">
-                  <div className="section-heading">
-                    <h3>{formatAccessRole(selectedRole.key)}</h3>
-                  </div>
-                  <p className="workspace-copy">
-                    {describeAccessRole(selectedRole.key)}
-                  </p>
-                  <p className="workspace-copy">
-                    {selectedRole.hasGlobalAccess
-                      ? "Este perfil possui ao menos um membro com acesso global a todas as unidades ativas."
-                      : "Este perfil está vinculado apenas às unidades listadas pelos membros atuais."}
-                  </p>
-                  <p className="workspace-copy">
-                    {selectedRole.members
-                      .map((member) => member.fullName)
-                      .join(", ")}
-                  </p>
-                </div>
-              ) : null}
             </>
           )}
         </div>
+
+        {activeTab === "positions" && selectedPosition ? (
+          <aside className="content-panel collaborator-profile__notes-panel">
+            <div className="section-heading">
+              <div className="stack stack--xs">
+                <h3>{selectedPosition.title}</h3>
+                <p className="workspace-copy">
+                  {selectedPosition.department?.name || "Sem departamento"} ·{" "}
+                  {selectedPosition.level || "Nível não definido"}
+                </p>
+              </div>
+              {canManagePeople ? (
+                <button
+                  className="button button--secondary"
+                  onClick={() => {
+                    setPositionError(null);
+                    setEditingPosition(selectedPosition);
+                  }}
+                  type="button"
+                >
+                  <EditIcon />
+                  <span>Editar</span>
+                </button>
+              ) : null}
+            </div>
+
+            <dl className="definition-list">
+              <DetailItem
+                label="Faixa salarial"
+                value={formatSalaryRange(selectedPosition)}
+              />
+              <DetailItem
+                label="Reporta para"
+                value={selectedPosition.reportsToPosition?.title || "Sem cargo superior"}
+              />
+              <DetailItem
+                label="Escolaridade exigida"
+                value={selectedPosition.requiredEducationLevel || "Não informada"}
+              />
+              <DetailItem
+                label="Experiência mínima"
+                value={formatExperience(selectedPosition.requiredExperienceYears)}
+              />
+            </dl>
+
+            <div className="stack stack--sm">
+              <div>
+                <p className="organization-pane-label">Descrição</p>
+                <p className="workspace-copy">
+                  {selectedPosition.description || "Sem descrição operacional registrada."}
+                </p>
+              </div>
+              <div>
+                <p className="organization-pane-label">Requisitos</p>
+                <BulletList
+                  emptyLabel="Nenhum requisito definido para este cargo."
+                  items={selectedPosition.requirements}
+                />
+              </div>
+              <div>
+                <p className="organization-pane-label">Responsabilidades</p>
+                <BulletList
+                  emptyLabel="Nenhuma responsabilidade registrada para este cargo."
+                  items={selectedPosition.responsibilities}
+                />
+              </div>
+            </div>
+          </aside>
+        ) : null}
       </article>
 
-      <div className="workspace-copy">
-        {activeMembers} membro{activeMembers === 1 ? "" : "s"} ativo
-        {activeMembers === 1 ? "" : "s"} · {representedBranches} unidade
-        {representedBranches === 1 ? "" : "s"} representada
-        {representedBranches === 1 ? "" : "s"} · {membersWithGlobalAccess} com
-        acesso global
-      </div>
+      <EmployeeEditorModal
+        branches={branches}
+        departments={departments}
+        employees={employees}
+        isOpen={isEmployeeModalOpen}
+        onClose={() =>
+          replaceSearchParams((nextSearchParams) => {
+            nextSearchParams.delete("create");
+          })
+        }
+        onSubmit={handleEmployeeSubmit}
+        positions={positions}
+      />
+
+      <PositionEditorModal
+        departments={departments}
+        initialPosition={editingPosition}
+        isOpen={isPositionModalOpen}
+        onClose={() => {
+          setEditingPosition(null);
+          replaceSearchParams((nextSearchParams) => {
+            nextSearchParams.delete("create");
+          });
+        }}
+        onSubmit={handlePositionSubmit}
+        positions={positions}
+      />
     </section>
+  );
+}
+
+function DetailItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
+}
+
+function BulletList({
+  emptyLabel,
+  items,
+}: {
+  emptyLabel: string;
+  items: string[];
+}) {
+  if (items.length === 0) {
+    return <p className="workspace-copy">{emptyLabel}</p>;
+  }
+
+  return (
+    <ul className="collaborator-profile__access-list">
+      {items.map((item) => (
+        <li className="collaborator-profile__access-item" key={item}>
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function buildTabHref(
+  pathname: string,
+  searchParams: ReturnType<typeof useSearchParams>,
+  tab: WorkspaceTab,
+) {
+  const nextSearchParams = new URLSearchParams(searchParams.toString());
+  nextSearchParams.delete("create");
+
+  if (tab === "employees") {
+    nextSearchParams.delete("tab");
+    nextSearchParams.delete("position");
+  } else {
+    nextSearchParams.set("tab", "positions");
+  }
+
+  const query = nextSearchParams.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+function formatCurrency(value: number | null) {
+  if (typeof value !== "number") {
+    return null;
+  }
+
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatDate(value: string | null) {
+  if (!value) {
+    return "Não informado";
+  }
+
+  const [year, month, day] = value.split("-");
+
+  if (!year || !month || !day) {
+    return "Não informado";
+  }
+
+  return `${day}/${month}/${year}`;
+}
+
+function formatExperience(value: number | null) {
+  if (typeof value !== "number") {
+    return "Não informada";
+  }
+
+  return `${value} ${value === 1 ? "ano" : "anos"}`;
+}
+
+function formatSalaryRange(position: ServerPosition) {
+  const min = formatCurrency(position.salaryRangeMin);
+  const max = formatCurrency(position.salaryRangeMax);
+
+  if (min && max) {
+    return `${min} a ${max}`;
+  }
+
+  return min || max || "Faixa salarial não definida";
+}
+
+function upsertEmployee(
+  currentEmployees: ServerEmployee[],
+  savedEmployee: ServerEmployee,
+) {
+  const nextEmployees = currentEmployees.filter(
+    (employee) => employee.id !== savedEmployee.id,
+  );
+  nextEmployees.unshift(savedEmployee);
+
+  return nextEmployees.sort((left, right) =>
+    left.fullName.localeCompare(right.fullName, "pt-BR"),
+  );
+}
+
+function upsertPosition(
+  currentPositions: ServerPosition[],
+  savedPosition: ServerPosition,
+) {
+  const nextPositions = currentPositions.filter(
+    (position) => position.id !== savedPosition.id,
+  );
+  nextPositions.unshift(savedPosition);
+
+  return nextPositions.sort((left, right) =>
+    left.title.localeCompare(right.title, "pt-BR"),
   );
 }

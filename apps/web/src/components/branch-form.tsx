@@ -225,7 +225,7 @@ export function BranchForm({
           name="isHeadquarters"
           type="checkbox"
         />
-        <span>Marcar como matriz</span>
+        <span>Matriz</span>
       </label>
       {error ? <p className="form-error">{error}</p> : null}
       <button className="button" disabled={isPending} type="submit">

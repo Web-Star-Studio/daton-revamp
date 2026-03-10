@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 
@@ -25,11 +26,6 @@ export function BootstrapForm() {
           adminFullName: String(formData.get("adminFullName") ?? ""),
           adminEmail: String(formData.get("adminEmail") ?? ""),
           password: String(formData.get("password") ?? ""),
-          headquarters: {
-            name: String(formData.get("hqName") ?? ""),
-            code: String(formData.get("hqCode") ?? ""),
-            legalIdentifier: String(formData.get("legalIdentifier") ?? ""),
-          },
         };
 
         setError(null);
@@ -38,7 +34,7 @@ export function BootstrapForm() {
         startTransition(async () => {
           try {
             await bootstrapOrganization(payload);
-            router.replace("/app");
+            router.replace("/onboarding/organization");
             router.refresh();
           } catch (bootstrapError) {
             setError(
@@ -86,18 +82,20 @@ export function BootstrapForm() {
         <label htmlFor="password">Senha</label>
         <input autoComplete="new-password" id="password" name="password" required type="password" />
       </div>
-      <div className="field">
-        <label htmlFor="hqName">Nome da matriz</label>
-        <input id="hqName" name="hqName" required type="text" />
-      </div>
-      <div className="field">
-        <label htmlFor="hqCode">Código da matriz</label>
-        <input id="hqCode" name="hqCode" required type="text" />
-      </div>
+      <label className="checkbox">
+        <input id="terms" name="terms" required type="checkbox" />
+        <span>
+          Ao marcar esta caixa, declaro que li, entendi e concordo com os Termos de Serviço,
+          a Política de Privacidade, o EULA e a Política de Uso Aceitável do Daton.
+        </span>
+      </label>
       {error ? <p className="form-error">{error}</p> : null}
       <button className="button" disabled={isPending} type="submit">
         {isPending ? "Criando ambiente" : "Criar ambiente Daton"}
       </button>
+      <p className="form-note">
+        Já possui um ambiente? <Link href="/auth?mode=sign-in">Entrar</Link>
+      </p>
     </form>
   );
 }

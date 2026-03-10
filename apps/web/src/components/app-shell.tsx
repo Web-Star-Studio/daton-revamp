@@ -21,6 +21,7 @@ import { AppNavigation } from "./app-navigation";
 import { BRANCH_EDITOR_MODAL_VISIBILITY_EVENT } from "./branch-editor-modal";
 import { COLLABORATOR_MODAL_VISIBILITY_EVENT } from "./collaborators-events";
 import { DEPARTMENT_MODAL_VISIBILITY_EVENT } from "./organization-departments-events";
+import { ORGANIZATION_PROFILE_MODAL_VISIBILITY_EVENT } from "./organization-profile-events";
 import { UNIT_MODAL_VISIBILITY_EVENT } from "./organization-units-events";
 import { SignOutButton } from "./sign-out-button";
 
@@ -31,7 +32,6 @@ type AppShellProps = PropsWithChildren<{
 }>;
 
 const navigation = [
-  { href: "/app", label: "Visão geral", icon: "dashboard" as const },
   {
     label: "Social",
     icon: "social" as const,
@@ -56,10 +56,19 @@ export function AppShell({
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
+  const [currentNotifications, setCurrentNotifications] = useState(notifications);
   const [isBranchEditorOpen, setIsBranchEditorOpen] = useState(false);
   const [isCollaboratorModalOpen, setIsCollaboratorModalOpen] = useState(false);
   const [isDepartmentModalOpen, setIsDepartmentModalOpen] = useState(false);
+  const [isOrganizationProfileModalOpen, setIsOrganizationProfileModalOpen] =
+    useState(false);
   const [isUnitModalOpen, setIsUnitModalOpen] = useState(false);
+  const canManageOrganization = session.effectiveRoles.some(
+    (role) => role === "owner" || role === "admin",
+  );
+  const canManagePeople = session.effectiveRoles.some(
+    (role) => role === "owner" || role === "admin" || role === "hr_admin",
+  );
   const memberName = formatShortName(
     session.member?.fullName ?? session.user.email,
   );
@@ -69,6 +78,7 @@ export function AppShell({
     isBranchEditorOpen ||
     isCollaboratorModalOpen ||
     isDepartmentModalOpen ||
+    isOrganizationProfileModalOpen ||
     isUnitModalOpen ||
     Boolean(activeModalSegment);
 
@@ -107,6 +117,10 @@ export function AppShell({
   }, [isAnyModalOpen]);
 
   useEffect(() => {
+    setCurrentNotifications(notifications);
+  }, [notifications]);
+
+  useEffect(() => {
     const handleBranchEditorVisibility = (event: Event) => {
       const modalEvent = event as CustomEvent<{ open?: boolean }>;
       setIsBranchEditorOpen(Boolean(modalEvent.detail?.open));
@@ -118,6 +132,10 @@ export function AppShell({
     const handleDepartmentModalVisibility = (event: Event) => {
       const modalEvent = event as CustomEvent<{ open?: boolean }>;
       setIsDepartmentModalOpen(Boolean(modalEvent.detail?.open));
+    };
+    const handleOrganizationProfileModalVisibility = (event: Event) => {
+      const modalEvent = event as CustomEvent<{ open?: boolean }>;
+      setIsOrganizationProfileModalOpen(Boolean(modalEvent.detail?.open));
     };
     const handleUnitModalVisibility = (event: Event) => {
       const modalEvent = event as CustomEvent<{ open?: boolean }>;
@@ -137,6 +155,10 @@ export function AppShell({
       handleDepartmentModalVisibility as EventListener,
     );
     window.addEventListener(
+      ORGANIZATION_PROFILE_MODAL_VISIBILITY_EVENT,
+      handleOrganizationProfileModalVisibility as EventListener,
+    );
+    window.addEventListener(
       UNIT_MODAL_VISIBILITY_EVENT,
       handleUnitModalVisibility as EventListener,
     );
@@ -153,6 +175,10 @@ export function AppShell({
       window.removeEventListener(
         DEPARTMENT_MODAL_VISIBILITY_EVENT,
         handleDepartmentModalVisibility as EventListener,
+      );
+      window.removeEventListener(
+        ORGANIZATION_PROFILE_MODAL_VISIBILITY_EVENT,
+        handleOrganizationProfileModalVisibility as EventListener,
       );
       window.removeEventListener(
         UNIT_MODAL_VISIBILITY_EVENT,
@@ -209,7 +235,9 @@ export function AppShell({
         <main className="app-main">
           <div className="app-main__inner">
             <AppHeader
-              notificationCount={notifications.length}
+              canManagePeople={canManagePeople}
+              canManageOrganization={canManageOrganization}
+              notificationCount={currentNotifications.length}
               onAiChatOpen={() => setIsAiChatOpen(true)}
               onAlertsOpen={() => setIsAlertsOpen(true)}
               onSidebarToggle={() =>
@@ -221,8 +249,9 @@ export function AppShell({
         </main>
       </div>
       <AlertsModal
-        notifications={notifications}
+        notifications={currentNotifications}
         open={isAlertsOpen}
+        onClear={() => setCurrentNotifications([])}
         onClose={() => setIsAlertsOpen(false)}
       />
       <AiChatModal open={isAiChatOpen} onClose={() => setIsAiChatOpen(false)} />

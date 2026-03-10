@@ -10,27 +10,19 @@ import { CloseIcon, MaterialIcon } from "./app-icons";
 type AlertsModalProps = {
   notifications: ServerNotification[];
   open: boolean;
+  onClear: () => void;
   onClose: () => void;
 };
 
 const toneMeta = {
   critical: {
-    icon: "error",
-    iconClassName: "alerts-modal__icon--critical",
     itemClassName: "alerts-modal__item--critical",
-    label: "Crítico",
   },
   warning: {
-    icon: "warning",
-    iconClassName: "alerts-modal__icon--warning",
     itemClassName: "alerts-modal__item--warning",
-    label: "Atenção",
   },
   neutral: {
-    icon: "notifications",
-    iconClassName: "alerts-modal__icon--neutral",
     itemClassName: "alerts-modal__item--neutral",
-    label: "Atualização",
   },
 } as const;
 
@@ -44,6 +36,7 @@ function formatNotificationDate(value: string) {
 export function AlertsModal({
   notifications,
   open,
+  onClear,
   onClose,
 }: AlertsModalProps) {
   const latestNotification = notifications[0] ?? null;
@@ -81,17 +74,27 @@ export function AlertsModal({
       >
         <header className="app-modal__header">
           <div className="alerts-modal__headline">
-            <h2 id="alerts-modal-title">Central de Alertas</h2>
+            <h2 id="alerts-modal-title">Notificações</h2>
             <span className="alerts-modal__count">{notifications.length}</span>
           </div>
-          <button
-            aria-label="Fechar alertas"
-            className="icon-button"
-            onClick={onClose}
-            type="button"
-          >
-            <CloseIcon />
-          </button>
+          <div className="alerts-modal__header-actions">
+            <button
+              className="alerts-modal__clear"
+              disabled={notifications.length === 0}
+              onClick={onClear}
+              type="button"
+            >
+              Limpar
+            </button>
+            <button
+              aria-label="Fechar notificações"
+              className="icon-button"
+              onClick={onClose}
+              type="button"
+            >
+              <CloseIcon />
+            </button>
+          </div>
         </header>
         <div className="alerts-modal__list" role="list">
           {notifications.length > 0 ? (
@@ -104,32 +107,25 @@ export function AlertsModal({
                   key={notification.id}
                   role="listitem"
                 >
-                  <div
-                    className={`alerts-modal__icon ${meta.iconClassName}`}
-                    aria-hidden="true"
-                  >
-                    <MaterialIcon icon={meta.icon} />
-                  </div>
                   <div className="alerts-modal__copy">
                     <div className="alerts-modal__topline">
                       <h3>{notification.title}</h3>
-                      <span className={`pill pill--${notification.level}`}>
-                        {meta.label}
+                      <span className="alerts-modal__timestamp">
+                        {formatNotificationDate(notification.createdAt)}
                       </span>
                     </div>
                     <p>{notification.description}</p>
                     <div className="alerts-modal__actions">
-                      {notification.href && notification.actionLabel ? (
+                      {notification.href ? (
                         <Link
-                          className={`button${notification.level === "critical" ? "" : " button--secondary"}`}
+                          className="button"
                           href={notification.href}
                           onClick={onClose}
                         >
-                          {notification.actionLabel}
+                          Ver mais
                         </Link>
                       ) : null}
                     </div>
-                    <span>{formatNotificationDate(notification.createdAt)}</span>
                   </div>
                 </article>
               );
@@ -139,38 +135,30 @@ export function AlertsModal({
               className="alerts-modal__item alerts-modal__item--neutral"
               role="listitem"
             >
-              <div
-                className="alerts-modal__icon alerts-modal__icon--neutral"
-                aria-hidden="true"
-              >
-                <MaterialIcon icon="notifications" />
-              </div>
               <div className="alerts-modal__copy">
                 <div className="alerts-modal__topline">
-                  <h3>Sem alertas recentes</h3>
-                  <span className="pill pill--neutral">Atualização</span>
+                  <h3>Sem notificações recentes</h3>
                 </div>
-                <p>
-                  Ainda não há eventos recentes persistidos para exibir nesta
-                  central.
-                </p>
+                <p>Ainda não há eventos recentes.</p>
               </div>
             </article>
           )}
         </div>
         <footer className="alerts-modal__footer">
-          <span>
-            {latestNotification
-              ? `Último evento em ${formatNotificationDate(latestNotification.createdAt)}`
-              : "Aguardando novos eventos do backend"}
-          </span>
+          {latestNotification ? (
+            <span>
+              {`Último evento em ${formatNotificationDate(latestNotification.createdAt)}`}
+            </span>
+          ) : (
+            <span />
+          )}
           {notifications.length > 0 ? (
             <Link
               className="alerts-modal__footer-action"
               href="/app/settings/organization"
               onClick={onClose}
             >
-              <span>Ver organização</span>
+              <span>Ver tudo</span>
               <MaterialIcon icon="arrow_forward" />
             </Link>
           ) : null}

@@ -3,6 +3,8 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { requireEnv } from "../../../scripts/require-env.mjs";
+
 const cwd = path.resolve(import.meta.dirname, "..");
 const repoRoot = path.resolve(cwd, "..", "..");
 const rawArgs = process.argv.slice(2);
@@ -73,6 +75,11 @@ const gitRelease =
 if (gitRelease && !process.env.SENTRY_RELEASE) {
   process.env.SENTRY_RELEASE = gitRelease;
 }
+
+requireEnv("BETTER_AUTH_URL", "deploy:api");
+requireEnv("NEXT_PUBLIC_APP_URL", "deploy:api");
+requireEnv("NEXT_PUBLIC_API_URL", "deploy:api");
+requireEnv("CORS_ORIGIN", "deploy:api");
 
 const hasUploadConfiguration =
   Boolean(process.env.SENTRY_AUTH_TOKEN) &&

@@ -28,6 +28,7 @@ jobs:
       BETTER_AUTH_URL: http://127.0.0.1:8787
       NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
       NEXT_PUBLIC_API_URL: http://127.0.0.1:8787
+      INTERNAL_API_URL: http://127.0.0.1:8787
       CORS_ORIGIN: http://127.0.0.1:3000
     steps:
       - uses: actions/checkout@v4

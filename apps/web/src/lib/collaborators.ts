@@ -123,7 +123,7 @@ export function createInitialCollaborators(
       employmentType: "CLT",
       status: "Ativo",
       branchId: branches[0]?.id ?? "",
-      branchName: branches[0]?.name ?? "Matriz",
+      branchName: branches[0]?.name ?? "Unidade principal",
       additionalLocation: "Sala 203, 2º andar",
       notes:
         "Responsável pelo onboarding documental e apoio às rotinas sociais.",
@@ -144,7 +144,7 @@ export function createInitialCollaborators(
       employmentType: "CLT",
       status: "Ativo",
       branchId: branches[1]?.id ?? branches[0]?.id ?? "",
-      branchName: branches[1]?.name ?? branches[0]?.name ?? "Base central",
+      branchName: branches[1]?.name ?? branches[0]?.name ?? "Unidade principal",
       additionalLocation: "Andar administrativo",
       notes: "Ponto focal para admissões, contratos e movimentações internas.",
     },

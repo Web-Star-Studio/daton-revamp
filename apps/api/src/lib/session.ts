@@ -7,7 +7,7 @@ import {
   organizationMembers,
   organizations,
 } from "@daton/db";
-import type { Role } from "@daton/contracts";
+import type { OnboardingData, Role } from "@daton/contracts";
 import type { DatonAuth } from "@daton/auth";
 
 export type AppDb = ReturnType<typeof createNodeDb>;
@@ -29,6 +29,7 @@ export type SessionSnapshot = {
     primaryCnae: string | null;
     stateRegistration: string | null;
     municipalRegistration: string | null;
+    onboardingData: OnboardingData;
     onboardingStatus: "pending" | "completed" | "skipped";
   } | null;
   member: {
@@ -71,6 +72,7 @@ export const getSessionSnapshot = async (
       organizationPrimaryCnae: organizations.primaryCnae,
       organizationStateRegistration: organizations.stateRegistration,
       organizationMunicipalRegistration: organizations.municipalRegistration,
+      organizationOnboardingData: organizations.onboardingData,
       organizationOnboardingStatus: organizations.onboardingStatus,
     })
     .from(organizationMembers)
@@ -142,6 +144,7 @@ export const getSessionSnapshot = async (
       primaryCnae: member.organizationPrimaryCnae,
       stateRegistration: member.organizationStateRegistration,
       municipalRegistration: member.organizationMunicipalRegistration,
+      onboardingData: member.organizationOnboardingData,
       onboardingStatus: member.organizationOnboardingStatus,
     },
     member: {

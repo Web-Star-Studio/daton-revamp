@@ -2,6 +2,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
+import { requireEnv } from "../../../scripts/require-env.mjs";
+
 const cwd = path.resolve(import.meta.dirname, "..");
 const repoRoot = path.resolve(cwd, "..", "..");
 const rawArgs = process.argv.slice(2);
@@ -74,4 +76,9 @@ if (!process.env.SENTRY_RELEASE) {
   }
 }
 
+requireEnv("NEXT_PUBLIC_APP_URL", "deploy:web");
+requireEnv("NEXT_PUBLIC_API_URL", "deploy:web");
+requireEnv("INTERNAL_API_URL", "deploy:web");
+
+run(pnpmCommand, ["exec", "opennextjs-cloudflare", "build"]);
 run(pnpmCommand, ["exec", "opennextjs-cloudflare", "deploy", ...args]);

@@ -5,20 +5,31 @@ import {
   createBootstrapOrganizationSchema,
   createCreateBranchSchema,
   createCreateDepartmentSchema,
+  createCreateEmployeeSchema,
+  createCreatePositionSchema,
   organizationSummarySchema,
-  skipOrganizationOnboardingSchema,
   createUpdateBranchSchema,
   createUpdateDepartmentSchema,
+  createUpdateEmployeeSchema,
+  createUpdatePositionSchema,
   departmentSummarySchema,
+  employeeSummarySchema,
+  positionSummarySchema,
   updateOrganizationSchema,
   type BootstrapOrganizationInput,
   type BranchSummary,
   type CreateBranchInput,
   type CreateDepartmentInput,
+  type CreateEmployeeInput,
+  type CreatePositionInput,
   type DepartmentSummary,
+  type EmployeeSummary,
+  type PositionSummary,
   type UpdateOrganizationInput,
   type UpdateBranchInput,
   type UpdateDepartmentInput,
+  type UpdateEmployeeInput,
+  type UpdatePositionInput,
 } from "@daton/contracts";
 
 import { resolvePublicApiBaseUrl, toApiUrl } from "./config";
@@ -124,6 +135,46 @@ export async function updateDepartment(
   });
 }
 
+export async function createEmployee(input: CreateEmployeeInput) {
+  const payload = createCreateEmployeeSchema().parse(input);
+
+  return clientApiFetch("/api/v1/employees", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    schema: employeeSummarySchema,
+  });
+}
+
+export async function updateEmployee(employeeId: string, input: UpdateEmployeeInput) {
+  const payload = createUpdateEmployeeSchema().parse(input);
+
+  return clientApiFetch(`/api/v1/employees/${employeeId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+    schema: employeeSummarySchema,
+  });
+}
+
+export async function createPosition(input: CreatePositionInput) {
+  const payload = createCreatePositionSchema().parse(input);
+
+  return clientApiFetch("/api/v1/positions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    schema: positionSummarySchema,
+  });
+}
+
+export async function updatePosition(positionId: string, input: UpdatePositionInput) {
+  const payload = createUpdatePositionSchema().parse(input);
+
+  return clientApiFetch(`/api/v1/positions/${positionId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+    schema: positionSummarySchema,
+  });
+}
+
 export async function updateOrganization(input: UpdateOrganizationInput) {
   const payload = updateOrganizationSchema.parse(input);
 
@@ -134,16 +185,8 @@ export async function updateOrganization(input: UpdateOrganizationInput) {
   });
 }
 
-export async function skipOrganizationOnboarding() {
-  const payload = skipOrganizationOnboardingSchema.parse({});
-
-  return clientApiFetch("/api/v1/organization/onboarding/skip", {
-    method: "POST",
-    body: JSON.stringify(payload),
-    schema: organizationSummarySchema,
-  });
-}
-
 export type ServerBranch = BranchSummary;
 export type ServerDepartment = DepartmentSummary;
+export type ServerEmployee = EmployeeSummary;
+export type ServerPosition = PositionSummary;
 export const apiBaseUrl = resolvePublicApiBaseUrl();

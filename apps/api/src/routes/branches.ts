@@ -149,29 +149,25 @@ const ensureUniqueCode = async (
   }
 };
 
-const assertHeadquartersAvailability = async (
+const hasOtherActiveHeadquarters = async (
   db: AppDbExecutor,
   organizationId: string,
   branchId?: string,
 ) => {
-  const [existingHeadquarters] = await db
+  const [headquarters] = await db
     .select({ id: branches.id })
     .from(branches)
     .where(
       and(
         eq(branches.organizationId, organizationId),
-        eq(branches.isHeadquarters, true),
         eq(branches.status, "active"),
+        eq(branches.isHeadquarters, true),
         branchId ? ne(branches.id, branchId) : undefined,
       ),
     )
     .limit(1);
 
-  if (existingHeadquarters) {
-    throw new HTTPException(409, {
-      message: "Apenas uma filial matriz ativa é permitida.",
-    });
-  }
+  return Boolean(headquarters);
 };
 
 const assignBranchManager = async (
@@ -475,6 +471,12 @@ branchRoutes.post("/branches", async (c) => {
   await assertParentBranch(db, organization.id, null, input.parentBranchId ?? null);
 
   const result = await db.transaction(async (tx: AppDbExecutor) => {
+    if (input.isHeadquarters && await hasOtherActiveHeadquarters(tx, organization.id)) {
+      throw new HTTPException(409, {
+        message: "Já existe uma sede ativa cadastrada para esta organização.",
+      });
+    }
+
     const [branch] = await tx
       .insert(branches)
       .values({
@@ -497,10 +499,6 @@ branchRoutes.post("/branches", async (c) => {
 
     if (!branch) {
       throw new HTTPException(500, { message: "Não foi possível criar a filial." });
-    }
-
-    if (branch.isHeadquarters) {
-      await assertHeadquartersAvailability(tx, organization.id, branch.id);
     }
 
     const managerMemberId = await assignBranchManager(tx, {
@@ -586,19 +584,33 @@ branchRoutes.patch(
       });
     }
 
-    if (input.status === "archived" && existingBranch.isHeadquarters) {
-      throw new HTTPException(400, {
-        message: "Promova outra filial antes de arquivar a matriz ativa.",
-      });
-    }
-
-    if (existingBranch.isHeadquarters && input.isHeadquarters === false) {
-      throw new HTTPException(400, {
-        message: "A matriz ativa não pode ser desmarcada sem promover outra filial.",
-      });
-    }
-
     await db.transaction(async (tx: AppDbExecutor) => {
+      const nextStatus = input.status ?? existingBranch.status;
+      const nextIsHeadquarters = Boolean(input.isHeadquarters);
+      const willBeActiveHeadquarters =
+        nextStatus === "active" && nextIsHeadquarters;
+      const isActiveHeadquartersToday =
+        existingBranch.status === "active" && existingBranch.isHeadquarters;
+
+      if (
+        willBeActiveHeadquarters &&
+        await hasOtherActiveHeadquarters(tx, organization.id, branchId)
+      ) {
+        throw new HTTPException(409, {
+          message: "Já existe uma sede ativa cadastrada para esta organização.",
+        });
+      }
+
+      if (
+        isActiveHeadquartersToday &&
+        !willBeActiveHeadquarters &&
+        !(await hasOtherActiveHeadquarters(tx, organization.id, branchId))
+      ) {
+        throw new HTTPException(400, {
+          message: "A organização precisa manter ao menos uma sede ativa.",
+        });
+      }
+
       await tx
         .update(branches)
         .set({
@@ -613,15 +625,12 @@ branchRoutes.patch(
           stateOrProvince: normalizeEmpty(input.stateOrProvince),
           postalCode: normalizeEmpty(input.postalCode),
           country: normalizeEmpty(input.country),
+          isHeadquarters: nextIsHeadquarters,
           parentBranchId: input.parentBranchId ?? null,
-          status: input.status ?? existingBranch.status,
+          status: nextStatus,
           updatedAt: new Date(),
         })
         .where(eq(branches.id, branchId));
-
-      if (input.isHeadquarters && !existingBranch.isHeadquarters) {
-        await assertHeadquartersAvailability(tx, organization.id, branchId);
-      }
 
       await assignBranchManager(tx, {
         organizationId: organization.id,
@@ -640,7 +649,7 @@ branchRoutes.patch(
         actorMemberId: member.id,
         metadata: {
           code: input.code,
-          status: input.status ?? existingBranch.status,
+          status: nextStatus,
         },
       });
     });

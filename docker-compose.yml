@@ -26,6 +26,7 @@ services:
     working_dir: /workspace
     environment:
       CHOKIDAR_USEPOLLING: "true"
+      CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: postgres://postgres:postgres@postgres:5432/daton
     command:
       - bash
       - -lc

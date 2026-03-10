@@ -1,4 +1,6 @@
+import { pbkdf2Async } from "@noble/hashes/pbkdf2.js";
 import { scryptAsync } from "@noble/hashes/scrypt.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 
 const PASSWORD_HASH_ALGORITHM = "pbkdf2-sha256";
 const DEFAULT_PASSWORD_HASH_ITERATIONS = 150_000;
@@ -59,32 +61,11 @@ const timingSafeEqual = (left: Uint8Array, right: Uint8Array) => {
   return diff === 0;
 };
 
-const derivePbkdf2Key = async (
-  password: string,
-  salt: Uint8Array,
-  iterations: number,
-) => {
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(normalizePassword(password)),
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
-
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      hash: "SHA-256",
-      iterations,
-      salt: Uint8Array.from(salt),
-    },
-    keyMaterial,
-    DERIVED_KEY_BYTES * 8,
-  );
-
-  return new Uint8Array(bits);
-};
+const derivePbkdf2Key = async (password: string, salt: Uint8Array, iterations: number) =>
+  pbkdf2Async(sha256, encoder.encode(normalizePassword(password)), salt, {
+    c: iterations,
+    dkLen: DERIVED_KEY_BYTES,
+  });
 
 const verifyLegacyScryptHash = async (password: string, hash: string) => {
   const [salt, key] = hash.split(":");

@@ -1,10 +1,10 @@
 name = "daton-api"
 main = "src/index.ts"
 compatibility_date = "2026-03-07"
-compatibility_flags = ["nodejs_compat"]
+compatibility_flags = ["nodejs_compat", "no_handle_cross_request_promise_resolution"]
 
 [vars]
-BETTER_AUTH_URL = "https://daton-web.design-b95.workers.dev"
+BETTER_AUTH_URL = "https://daton-api.design-b95.workers.dev"
 NEXT_PUBLIC_APP_URL = "https://daton-web.design-b95.workers.dev"
 NEXT_PUBLIC_API_URL = "https://daton-api.design-b95.workers.dev"
 CORS_ORIGIN = "https://daton-web.design-b95.workers.dev"

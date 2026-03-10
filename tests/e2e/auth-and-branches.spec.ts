@@ -10,13 +10,42 @@ import {
 } from "./helpers";
 
 test("bootstrap, branch management, and auth flows work end to end", async ({ page }) => {
+  const observedRequestOrigins = {
+    bootstrap: [] as string[],
+    branchCreation: [] as string[],
+    signIn: [] as string[],
+  };
+
+  page.on("request", (request) => {
+    if (request.method() !== "POST") {
+      return;
+    }
+
+    const url = new URL(request.url());
+
+    if (url.pathname === "/api/v1/bootstrap/organization") {
+      observedRequestOrigins.bootstrap.push(url.origin);
+    }
+
+    if (url.pathname === "/api/v1/branches") {
+      observedRequestOrigins.branchCreation.push(url.origin);
+    }
+
+    if (url.pathname === "/api/auth/sign-in/email") {
+      observedRequestOrigins.signIn.push(url.origin);
+    }
+  });
+
   await expectRedirectToSignIn(page);
+  const appOrigin = new URL(page.url()).origin;
 
   const suffix = createUniqueId("flow");
   const workspace = await createWorkspace(page, suffix);
   const branchCnpj = createTestCnpj(`${suffix}02`);
   const duplicateBranchCnpj = createTestCnpj(`${suffix}03`);
   const secondHeadquartersCnpj = createTestCnpj(`${suffix}04`);
+
+  expect(observedRequestOrigins.bootstrap).toContain(appOrigin);
 
   await page.goto("/app");
   await page.waitForURL("**/onboarding/organization");
@@ -31,6 +60,7 @@ test("bootstrap, branch management, and auth flows work end to end", async ({ pa
   await page.getByRole("button", { name: "Criar filial" }).click();
 
   await expect(page.getByRole("heading", { name: `Filial ${suffix}` })).toBeVisible();
+  expect(observedRequestOrigins.branchCreation).toContain(appOrigin);
 
   await page.goto("/app/branches/new");
   await page.getByLabel("Nome da filial").fill(`Duplicada ${suffix}`);
@@ -58,6 +88,7 @@ test("bootstrap, branch management, and auth flows work end to end", async ({ pa
   await page.getByRole("button", { name: "Entrar no ambiente" }).click();
   await page.waitForURL("**/app/settings/organization");
   await expect(page.getByRole("heading", { level: 2, name: workspace.tradeName })).toBeVisible();
+  expect(observedRequestOrigins.signIn).toContain(appOrigin);
 });
 
 test("wizard blocks access until completion and enforces required onboarding fields", async ({ page }) => {

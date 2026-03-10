@@ -23,6 +23,9 @@ export const resolvePublicApiBaseUrl = () => {
   return configuredUrl.toString();
 };
 
-export const toApiUrl = (path: string) => new URL(path, resolvePublicApiBaseUrl()).toString();
+export const resolveBrowserApiBaseUrl = () =>
+  typeof window === "undefined" ? appConfig.appBaseUrl : window.location.origin;
+
+export const toApiUrl = (path: string) => new URL(path, resolveBrowserApiBaseUrl()).toString();
 export const toInternalApiUrl = (path: string) =>
   new URL(path, appConfig.internalApiBaseUrl).toString();

@@ -32,7 +32,7 @@ import {
   type UpdatePositionInput,
 } from "@daton/contracts";
 
-import { resolvePublicApiBaseUrl, toApiUrl } from "./config";
+import { resolveBrowserApiBaseUrl, toApiUrl } from "./config";
 
 type ClientFetchOptions = RequestInit & {
   schema?: z.ZodTypeAny;
@@ -189,4 +189,4 @@ export type ServerBranch = BranchSummary;
 export type ServerDepartment = DepartmentSummary;
 export type ServerEmployee = EmployeeSummary;
 export type ServerPosition = PositionSummary;
-export const apiBaseUrl = resolvePublicApiBaseUrl();
+export const apiBaseUrl = resolveBrowserApiBaseUrl();

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import {
+  createDetachedAuthUser,
   completeOrganizationOnboarding,
   createTestCnpj,
   createUniqueId,
@@ -131,4 +132,36 @@ test("wizard blocks access until completion and enforces required onboarding fie
   await page.getByRole("button", { name: "Salvar dados" }).click();
   await expect(page.getByText("Operações industriais")).toBeVisible();
   await expect(page.getByText("Iniciante")).toBeVisible();
+});
+
+test("detached authenticated users can bootstrap an organization", async ({ page, request }) => {
+  const suffix = createUniqueId("detached");
+  const user = await createDetachedAuthUser(request, suffix);
+
+  await page.goto("/auth?mode=sign-in");
+  await page.getByLabel("E-mail de trabalho").fill(user.email);
+  await page.getByLabel("Senha").fill(`Manager-${suffix}-secure`);
+  await page.getByRole("button", { name: "Entrar no ambiente" }).click();
+
+  await page.waitForURL("**/auth?mode=sign-up");
+
+  const legalName = `Detached Org ${suffix}`;
+  const tradeName = `Detached ${suffix}`;
+  const legalIdentifier = createTestCnpj(`${suffix}90`);
+
+  await page.getByLabel("Razão social").fill(legalName);
+  await page.getByLabel("Nome fantasia").fill(tradeName);
+  await page.getByLabel("CNPJ", { exact: true }).fill(legalIdentifier);
+  await page.getByLabel("Nome completo do administrador").fill(`Gestor ${suffix}`);
+  await page.getByLabel("E-mail do administrador").fill(user.email);
+  await page.getByLabel("Senha").fill(`Manager-${suffix}-secure`);
+  await page.getByLabel(/declaro que li, entendi e concordo/i).check();
+  await page.getByRole("button", { name: "Criar ambiente Daton" }).click();
+
+  await page.waitForURL("**/onboarding/organization");
+  await expect(
+    page.getByRole("heading", {
+      name: "Perfil operacional",
+    }),
+  ).toBeVisible();
 });

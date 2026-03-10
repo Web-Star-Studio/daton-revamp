@@ -41,12 +41,6 @@ const parseBootstrapInput = async (c: any) => {
 bootstrapRoutes.post("/bootstrap/organization", async (c) => {
   const snapshot = c.get("sessionSnapshot");
 
-  if (snapshot?.user) {
-    throw new HTTPException(409, {
-      message: "Você já está autenticado. Conclua a configuração pelo aplicativo.",
-    });
-  }
-
   if (snapshot?.organization || snapshot?.member) {
     throw new HTTPException(409, {
       message: "Este usuário já pertence a uma organização.",
@@ -68,24 +62,32 @@ bootstrapRoutes.post("/bootstrap/organization", async (c) => {
     });
   }
 
-  const authResult = await c
-      .get("auth")
-      .api.signUpEmail({
-        headers: c.req.raw.headers,
-        body: {
-          name: input.adminFullName,
-          email: input.adminEmail,
-          password: input.password,
-        },
-        returnHeaders: true,
-      })
-      .catch(() => {
-        throw new HTTPException(400, {
-          message: "Não foi possível criar o acesso inicial com os dados informados.",
+  const authResult = snapshot?.user
+    ? null
+    : await c
+        .get("auth")
+        .api.signUpEmail({
+          headers: c.req.raw.headers,
+          body: {
+            name: input.adminFullName,
+            email: input.adminEmail,
+            password: input.password,
+          },
+          returnHeaders: true,
+        })
+        .catch(() => {
+          throw new HTTPException(400, {
+            message: "Não foi possível criar o acesso inicial com os dados informados.",
+          });
         });
-      });
 
-  const user = authResult.response.user;
+  const user = snapshot?.user ?? authResult?.response.user;
+
+  if (!user) {
+    throw new HTTPException(500, {
+      message: "Não foi possível determinar o usuário autenticado para criar a organização.",
+    });
+  }
 
   const result = await db.transaction(async (tx: AppDbExecutor) => {
       const [organization] = await tx
@@ -149,7 +151,7 @@ bootstrapRoutes.post("/bootstrap/organization", async (c) => {
     member: organizationMemberSummarySchema.parse(result.member),
   });
 
-  authResult.headers.forEach((value, key) => {
+  authResult?.headers.forEach((value, key) => {
     if (key.toLowerCase() === "set-cookie") {
       response.headers.append(key, value);
     }

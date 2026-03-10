@@ -4,6 +4,11 @@
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-03-09",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "vars": {
+    "NEXT_PUBLIC_APP_URL": "https://daton-web.design-b95.workers.dev",
+    "NEXT_PUBLIC_API_URL": "https://daton-api.design-b95.workers.dev",
+    "INTERNAL_API_URL": "https://daton-api.design-b95.workers.dev"
+  },
   "assets": {
     "binding": "ASSETS",
     "directory": ".open-next/assets"

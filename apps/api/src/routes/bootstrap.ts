@@ -65,11 +65,28 @@ const classifyBootstrapError = (error: unknown): { message: string; status: 400 
     };
   }
 
-  if ((code && transientErrorCodes.has(code)) || name === "TypeError") {
+  if (code && transientErrorCodes.has(code)) {
     return {
       message: "Os serviços necessários para criar o ambiente estão indisponíveis no momento.",
       status: 503,
     };
+  }
+
+  if (name === "TypeError") {
+    const message = error instanceof Error ? error.message.toLowerCase() : "";
+
+    if (
+      message.includes("failed to fetch") ||
+      message.includes("fetch") ||
+      message.includes("network")
+    ) {
+      return {
+        message: "Os serviços necessários para criar o ambiente estão indisponíveis no momento.",
+        status: 503,
+      };
+    }
+
+    console.warn("Unexpected TypeError while bootstrapping organization.", error);
   }
 
   return {

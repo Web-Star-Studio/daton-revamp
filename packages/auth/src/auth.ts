@@ -8,12 +8,12 @@ import {
   type User,
 } from "@workos-inc/node";
 
-import type { DatonDb } from "../../db/src/client";
 import {
+  type DatonDb,
   memberRoleAssignments,
   organizationMembers,
   organizations,
-} from "../../db/src/schema";
+} from "@daton/db";
 
 import type { DatonSessionEnv, WorkOsEnv, WorkOsManagementEnv } from "./env";
 

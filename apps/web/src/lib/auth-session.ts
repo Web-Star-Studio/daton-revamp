@@ -20,7 +20,7 @@ import { sessionResponseSchema } from "@daton/contracts";
 
 import { appConfig, toInternalApiUrl } from "./config";
 
-const loopbackHosts = new Set(["127.0.0.1", "localhost"]);
+const loopbackHosts = new Set(["127.0.0.1", "localhost", "::1"]);
 const sessionLifetimeSeconds = 60 * 60 * 24 * 7;
 const workOsAuthErrorNames = new Set(["BadRequestException", "OauthException", "UnauthorizedException"]);
 const workOsAuthErrorCodes = new Set([
@@ -184,7 +184,7 @@ const toAuthSessionError = (error: unknown, fallbackMessage: string) => {
 
 const isSecureCookie = () => {
   try {
-    return !loopbackHosts.has(new URL(appConfig.appBaseUrl).hostname);
+    return !loopbackHosts.has(normalizeHostname(new URL(appConfig.appBaseUrl).hostname));
   } catch {
     return process.env.NODE_ENV === "production";
   }
@@ -303,12 +303,23 @@ export const refreshDatonSessionIfNeeded = async (
     };
   } catch (error) {
     const status = getErrorStatus(error);
+    const accessTokenStillValid = Number.isFinite(expiresAt) && expiresAt > Date.now();
+    const authFailure =
+      isWorkOsAuthenticationFailure(error) || status === 401 || status === 403;
+
+    if (!authFailure && accessTokenStillValid) {
+      return {
+        payload,
+        rotated: false,
+        error: null,
+      };
+    }
 
     return {
-      payload: null,
+      payload: authFailure ? null : accessTokenStillValid ? payload : null,
       rotated: false,
       error:
-        isWorkOsAuthenticationFailure(error) || status === 401 || status === 403
+        authFailure
           ? new AuthSessionError({
               message: "Autenticação obrigatória.",
               kind: "auth",
@@ -381,3 +392,5 @@ export const revokeDatonSession = async (payload: DatonSessionCookiePayload | nu
     // Best effort only.
   }
 };
+const normalizeHostname = (hostname: string) =>
+  hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;

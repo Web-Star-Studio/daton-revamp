@@ -56,35 +56,44 @@ export const createDatonAuth = (db: DatonDb, env: DatonAuthEnv) =>
           return;
         }
 
-        const password =
-          typeof ctx.body === "object" &&
-          ctx.body !== null &&
-          "password" in ctx.body &&
-          typeof ctx.body.password === "string"
-            ? ctx.body.password
-            : null;
+        try {
+          const password =
+            typeof ctx.body === "object" &&
+            ctx.body !== null &&
+            "password" in ctx.body &&
+            typeof ctx.body.password === "string"
+              ? ctx.body.password
+              : null;
 
-        const userId = ctx.context.newSession?.user.id;
+          const userId = ctx.context.newSession?.user.id;
 
-        if (!password || !userId) {
-          return;
+          if (!password || !userId) {
+            return;
+          }
+
+          const credentialAccount = (await ctx.context.internalAdapter.findAccounts(userId)).find(
+            (account) => account.providerId === "credential",
+          );
+          const currentPasswordHash = credentialAccount?.password;
+
+          if (!currentPasswordHash || !isLegacyScryptHash(currentPasswordHash)) {
+            return;
+          }
+
+          const nextPasswordHash = await hashPassword(
+            password,
+            env.BETTER_AUTH_PASSWORD_HASH_ITERATIONS,
+          );
+
+          await ctx.context.internalAdapter.updatePassword(userId, nextPasswordHash);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Unknown password migration error.";
+
+          ctx.context.logger.error(
+            `Failed to migrate legacy credential password hash after sign-in: ${message}`,
+          );
         }
-
-        const credentialAccount = (await ctx.context.internalAdapter.findAccounts(userId)).find(
-          (account) => account.providerId === "credential",
-        );
-        const currentPasswordHash = credentialAccount?.password;
-
-        if (!currentPasswordHash || !isLegacyScryptHash(currentPasswordHash)) {
-          return;
-        }
-
-        const nextPasswordHash = await hashPassword(
-          password,
-          env.BETTER_AUTH_PASSWORD_HASH_ITERATIONS,
-        );
-
-        await ctx.context.internalAdapter.updatePassword(userId, nextPasswordHash);
       }),
     },
   });

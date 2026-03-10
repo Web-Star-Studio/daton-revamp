@@ -16,13 +16,18 @@ import { organizationRoutes } from "./routes/organization";
 import type { AppBindings } from "./types";
 
 const app = new Hono<AppBindings>();
-type CachedServices = {
-  cacheKey: string;
-  auth: ReturnType<typeof createDatonAuth>;
+type CachedDb = {
+  databaseUrl: string;
   db: DatonDb;
 };
+type CachedAuth = {
+  auth: ReturnType<typeof createDatonAuth>;
+  cacheKey: string;
+  databaseUrl: string;
+};
 
-let cachedServices: CachedServices | null = null;
+let cachedDb: CachedDb | null = null;
+let cachedAuth: CachedAuth | null = null;
 
 const readServerEnv = (bindings: AppBindings["Bindings"]) =>
   parseServerEnv({
@@ -55,7 +60,6 @@ const getServices = (bindings: AppBindings["Bindings"]) => {
   }
 
   const cacheKey = JSON.stringify({
-    databaseUrl,
     authSecret: env.BETTER_AUTH_SECRET,
     authUrl: env.BETTER_AUTH_URL,
     appUrl: env.NEXT_PUBLIC_APP_URL,
@@ -65,19 +69,29 @@ const getServices = (bindings: AppBindings["Bindings"]) => {
     passwordHashIterations: env.auth.BETTER_AUTH_PASSWORD_HASH_ITERATIONS ?? "",
   });
 
-  if (!cachedServices || cachedServices.cacheKey !== cacheKey) {
-    const db = createNodeDb(databaseUrl);
+  if (!cachedDb || cachedDb.databaseUrl !== databaseUrl) {
+    cachedDb = {
+      databaseUrl,
+      db: createNodeDb(databaseUrl),
+    };
+  }
 
-    cachedServices = {
+  if (
+    !cachedAuth ||
+    cachedAuth.cacheKey !== cacheKey ||
+    cachedAuth.databaseUrl !== databaseUrl
+  ) {
+    cachedAuth = {
+      auth: createDatonAuth(cachedDb.db, env.auth),
       cacheKey,
-      auth: createDatonAuth(db, env.auth),
-      db,
+      databaseUrl,
     };
   }
 
   return {
+    auth: cachedAuth.auth,
+    db: cachedDb.db,
     env,
-    ...cachedServices,
   };
 };
 

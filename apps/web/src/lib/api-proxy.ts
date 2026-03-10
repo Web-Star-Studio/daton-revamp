@@ -14,6 +14,7 @@ const hopByHopHeaders = new Set([
 ]);
 
 const bodyMethods = new Set(["DELETE", "PATCH", "POST", "PUT"]);
+const upstreamTimeoutMs = 10_000;
 
 const copyHeaders = (source: Headers, options?: { includeSetCookie?: boolean }) => {
   const target = new Headers();
@@ -63,12 +64,36 @@ const readSetCookies = (headers: Headers) => {
 };
 
 export async function proxyApiRequest(request: Request) {
-  const upstreamUrl = toInternalApiUrl(`${new URL(request.url).pathname}${new URL(request.url).search}`);
+  const parsedUrl = new URL(request.url);
+  const upstreamUrl = toInternalApiUrl(`${parsedUrl.pathname}${parsedUrl.search}`);
   const upstreamHeaders = copyHeaders(request.headers);
+  const clientIp =
+    request.headers.get("cf-connecting-ip") ??
+    request.headers.get("x-real-ip") ??
+    request.headers
+      .get("x-forwarded-for")
+      ?.split(",")
+      .map((value) => value.trim())
+      .find(Boolean) ??
+    null;
+
+  if (clientIp) {
+    const existingForwardedFor = upstreamHeaders.get("x-forwarded-for");
+    upstreamHeaders.set(
+      "x-forwarded-for",
+      existingForwardedFor ? `${existingForwardedFor}, ${clientIp}` : clientIp,
+    );
+    upstreamHeaders.set("x-real-ip", clientIp);
+  }
+
   const requestBody =
     bodyMethods.has(request.method) && request.body ? await request.arrayBuffer() : undefined;
 
   let upstreamResponse: Response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, upstreamTimeoutMs);
 
   try {
     upstreamResponse = await fetch(upstreamUrl, {
@@ -77,14 +102,26 @@ export async function proxyApiRequest(request: Request) {
       body: requestBody,
       cache: "no-store",
       redirect: "manual",
+      signal: controller.signal,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return Response.json(
+        {
+          message: "A API demorou demais para responder.",
+        },
+        { status: 504 },
+      );
+    }
+
     return Response.json(
       {
         message: "Não foi possível contatar a API agora.",
       },
       { status: 502 },
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   const responseHeaders = copyHeaders(upstreamResponse.headers, {

@@ -17,6 +17,7 @@ const isInvalidCredentialsError = (value: unknown) => {
     "message" in value && typeof value.message === "string" ? value.message : "";
 
   return (
+    status === 400 ||
     status === 401 ||
     code === "INVALID_EMAIL_OR_PASSWORD" ||
     message.toLowerCase().includes("invalid email or password") ||
@@ -50,10 +51,10 @@ export function SignInForm() {
 
             if (result?.error) {
               if (isInvalidCredentialsError(result.error)) {
-                throw new Error("E-mail ou senha inválidos.");
+                throw result.error;
               }
 
-              throw new Error("Não foi possível entrar no ambiente agora.");
+              throw result.error;
             }
 
             router.replace("/app");

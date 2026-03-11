@@ -359,7 +359,7 @@ const branchesPlugin: FastifyPluginAsync = async (fastify) => {
       .where(
         and(
           eq(branches.organizationId, organization.id),
-          visibleBranchIds.length ? inArray(branches.id, visibleBranchIds) : undefined,
+          inArray(branches.id, visibleBranchIds),
         ),
       );
 
@@ -380,80 +380,80 @@ const branchesPlugin: FastifyPluginAsync = async (fastify) => {
       preHandler: requireRoles("owner", "admin", "hr_admin"),
     },
     async (request, reply) => {
-    const c = createRouteContext(request, reply);
-    const snapshot = c.get("sessionSnapshot");
+      const c = createRouteContext(request, reply);
+      const snapshot = c.get("sessionSnapshot");
 
-    if (!snapshot?.organization || !snapshot.member) {
-      throw new HTTPException(401, { message: "Autenticação obrigatória." });
-    }
-
-    const organization = snapshot.organization;
-    const member = snapshot.member;
-
-    const input = await parseCreateBranchInput(c);
-    const db = c.get("db");
-
-    await ensureUniqueCode(db, organization.id, input.code);
-    await assertParentBranch(db, organization.id, null, input.parentBranchId ?? null);
-
-    const result = await db.transaction(async (tx: AppDbExecutor) => {
-      if (input.isHeadquarters && (await hasOtherActiveHeadquarters(tx, organization.id))) {
-        throw new HTTPException(409, {
-          message: "Já existe uma sede ativa cadastrada para esta organização.",
-        });
+      if (!snapshot?.organization || !snapshot.member) {
+        throw new HTTPException(401, { message: "Autenticação obrigatória." });
       }
 
-      const [branch] = await tx
-        .insert(branches)
-        .values({
+      const organization = snapshot.organization;
+      const member = snapshot.member;
+
+      const input = await parseCreateBranchInput(c);
+      const db = c.get("db");
+
+      await ensureUniqueCode(db, organization.id, input.code);
+      await assertParentBranch(db, organization.id, null, input.parentBranchId ?? null);
+
+      const result = await db.transaction(async (tx: AppDbExecutor) => {
+        if (input.isHeadquarters && (await hasOtherActiveHeadquarters(tx, organization.id))) {
+          throw new HTTPException(409, {
+            message: "Já existe uma sede ativa cadastrada para esta organização.",
+          });
+        }
+
+        const [branch] = await tx
+          .insert(branches)
+          .values({
+            organizationId: organization.id,
+            name: input.name,
+            code: input.code,
+            legalIdentifier: input.legalIdentifier,
+            email: normalizeEmpty(input.email),
+            phone: normalizeEmpty(input.phone),
+            addressLine1: normalizeEmpty(input.addressLine1),
+            addressLine2: normalizeEmpty(input.addressLine2),
+            city: normalizeEmpty(input.city),
+            stateOrProvince: normalizeEmpty(input.stateOrProvince),
+            postalCode: normalizeEmpty(input.postalCode),
+            country: normalizeEmpty(input.country),
+            isHeadquarters: Boolean(input.isHeadquarters),
+            parentBranchId: input.parentBranchId ?? null,
+          })
+          .returning();
+
+        if (!branch) {
+          throw new HTTPException(500, { message: "Não foi possível criar a filial." });
+        }
+
+        const managerMemberId = await assignBranchManager(tx, {
           organizationId: organization.id,
-          name: input.name,
-          code: input.code,
-          legalIdentifier: input.legalIdentifier,
-          email: normalizeEmpty(input.email),
-          phone: normalizeEmpty(input.phone),
-          addressLine1: normalizeEmpty(input.addressLine1),
-          addressLine2: normalizeEmpty(input.addressLine2),
-          city: normalizeEmpty(input.city),
-          stateOrProvince: normalizeEmpty(input.stateOrProvince),
-          postalCode: normalizeEmpty(input.postalCode),
-          country: normalizeEmpty(input.country),
-          isHeadquarters: Boolean(input.isHeadquarters),
-          parentBranchId: input.parentBranchId ?? null,
-        })
-        .returning();
+          branchId: branch.id,
+          memberId: input.managerMemberId ?? null,
+          actorUserId: snapshot.user.id,
+          actorMemberId: member.id,
+        });
 
-      if (!branch) {
-        throw new HTTPException(500, { message: "Não foi possível criar a filial." });
-      }
+        await recordAuditEvent(tx, {
+          action: "branch.create",
+          entityType: "branch",
+          entityId: branch.id,
+          organizationId: organization.id,
+          actorUserId: snapshot.user.id,
+          actorMemberId: member.id,
+          metadata: {
+            code: branch.code,
+            managerMemberId,
+          },
+        });
 
-      const managerMemberId = await assignBranchManager(tx, {
-        organizationId: organization.id,
-        branchId: branch.id,
-        memberId: input.managerMemberId ?? null,
-        actorUserId: snapshot.user.id,
-        actorMemberId: member.id,
+        return {
+          branchId: branch.id,
+        };
       });
 
-      await recordAuditEvent(tx, {
-        action: "branch.create",
-        entityType: "branch",
-        entityId: branch.id,
-        organizationId: organization.id,
-        actorUserId: snapshot.user.id,
-        actorMemberId: member.id,
-        metadata: {
-          code: branch.code,
-          managerMemberId,
-        },
-      });
-
-      return {
-        branchId: branch.id,
-      };
-    });
-
-    return c.json(await serializeBranch(db, organization.id, result.branchId), 201);
+      return c.json(await serializeBranch(db, organization.id, result.branchId), 201);
     },
   );
 
@@ -572,7 +572,12 @@ const branchesPlugin: FastifyPluginAsync = async (fastify) => {
             status: nextStatus,
             updatedAt: new Date(),
           })
-          .where(eq(branches.id, branchId));
+          .where(
+            and(
+              eq(branches.id, branchId),
+              eq(branches.organizationId, organization.id),
+            ),
+          );
 
         await assignBranchManager(tx, {
           organizationId: organization.id,

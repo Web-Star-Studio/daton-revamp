@@ -246,6 +246,43 @@ const ensureDepartmentCodeUnique = async (
   }
 };
 
+const isUniqueConstraintConflict = (
+  error: unknown,
+  candidates: string[],
+) => {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code =
+    "code" in error && typeof error.code === "string" ? error.code : null;
+
+  if (code !== "23505") {
+    return false;
+  }
+
+  const details = [
+    "constraint" in error && typeof error.constraint === "string"
+      ? error.constraint
+      : null,
+    "constraint_name" in error && typeof error.constraint_name === "string"
+      ? error.constraint_name
+      : null,
+    "column" in error && typeof error.column === "string" ? error.column : null,
+    "column_name" in error && typeof error.column_name === "string"
+      ? error.column_name
+      : null,
+    "detail" in error && typeof error.detail === "string" ? error.detail : null,
+    "message" in error && typeof error.message === "string" ? error.message : null,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.toLowerCase());
+
+  return candidates.some((candidate) =>
+    details.some((detail) => detail.includes(candidate.toLowerCase())),
+  );
+};
+
 const assertManagerMember = async (
   db: AppDbExecutor,
   organizationId: string,
@@ -400,8 +437,17 @@ const assertDepartmentHierarchy = async (
   }
 
   let cursor: string | null = parentDepartmentId;
+  const visited = new Set<string>();
 
   while (cursor) {
+    if (visited.has(cursor)) {
+      throw new HTTPException(400, {
+        message: "A hierarquia de departamentos contém um ciclo.",
+      });
+    }
+
+    visited.add(cursor);
+
     const [parent] = await db
       .select({
         id: departments.id,
@@ -1338,21 +1384,38 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
       const availableBranches = await ensureDepartmentBranches(db, organization.id, input.branchIds);
 
       const result = await db.transaction(async (tx: AppDbExecutor) => {
-        const [department] = await tx
-          .insert(departments)
-          .values({
-            organizationId: organization.id,
-            name: input.name,
-            code: input.code,
-            description: normalizeEmpty(input.description),
-            parentDepartmentId: input.parentDepartmentId ?? null,
-            managerEmployeeId: input.managerEmployeeId ?? null,
-            managerMemberId: input.managerMemberId ?? null,
-            budget: normalizeNumber(input.budget),
-            costCenter: normalizeEmpty(input.costCenter),
-            notes: normalizeEmpty(input.notes),
-          })
-          .returning({ id: departments.id });
+        let department;
+
+        try {
+          [department] = await tx
+            .insert(departments)
+            .values({
+              organizationId: organization.id,
+              name: input.name,
+              code: input.code,
+              description: normalizeEmpty(input.description),
+              parentDepartmentId: input.parentDepartmentId ?? null,
+              managerEmployeeId: input.managerEmployeeId ?? null,
+              managerMemberId: input.managerMemberId ?? null,
+              budget: normalizeNumber(input.budget),
+              costCenter: normalizeEmpty(input.costCenter),
+              notes: normalizeEmpty(input.notes),
+            })
+            .returning({ id: departments.id });
+        } catch (error) {
+          if (
+            isUniqueConstraintConflict(error, [
+              "departments_org_code_idx",
+              "organization_id, code",
+            ])
+          ) {
+            throw new HTTPException(409, {
+              message: "O código do departamento deve ser único dentro da organização.",
+            });
+          }
+
+          throw error;
+        }
 
         if (!department) {
           throw new HTTPException(500, {
@@ -1448,22 +1511,37 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
       const availableBranches = await ensureDepartmentBranches(db, organization.id, input.branchIds);
 
       await db.transaction(async (tx: AppDbExecutor) => {
-        await tx
-          .update(departments)
-          .set({
-            name: input.name,
-            code: input.code,
-            description: normalizeEmpty(input.description),
-            parentDepartmentId: input.parentDepartmentId ?? null,
-            managerEmployeeId: input.managerEmployeeId ?? null,
-            managerMemberId: input.managerMemberId ?? null,
-            budget: normalizeNumber(input.budget),
-            costCenter: normalizeEmpty(input.costCenter),
-            notes: normalizeEmpty(input.notes),
-            status: input.status ?? existingDepartment.status,
-            updatedAt: new Date(),
-          })
-          .where(eq(departments.id, departmentId));
+        try {
+          await tx
+            .update(departments)
+            .set({
+              name: input.name,
+              code: input.code,
+              description: normalizeEmpty(input.description),
+              parentDepartmentId: input.parentDepartmentId ?? null,
+              managerEmployeeId: input.managerEmployeeId ?? null,
+              managerMemberId: input.managerMemberId ?? null,
+              budget: normalizeNumber(input.budget),
+              costCenter: normalizeEmpty(input.costCenter),
+              notes: normalizeEmpty(input.notes),
+              status: input.status ?? existingDepartment.status,
+              updatedAt: new Date(),
+            })
+            .where(eq(departments.id, departmentId));
+        } catch (error) {
+          if (
+            isUniqueConstraintConflict(error, [
+              "departments_org_code_idx",
+              "organization_id, code",
+            ])
+          ) {
+            throw new HTTPException(409, {
+              message: "O código do departamento deve ser único dentro da organização.",
+            });
+          }
+
+          throw error;
+        }
 
         await tx
           .delete(departmentBranchAssignments)
@@ -1621,32 +1699,49 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
 
       const resolvedDepartmentId = input.departmentId ?? position?.departmentId ?? null;
 
-      const [employee] = await db
-        .insert(employees)
-        .values({
-          organizationId,
-          employeeCode: normalizeEmpty(input.employeeCode),
-          cpf: normalizeEmpty(input.cpf),
-          fullName: input.fullName.trim(),
-          email: normalizeEmpty(input.email),
-          phone: normalizeEmpty(input.phone),
-          departmentId: resolvedDepartmentId,
-          positionId: input.positionId ?? null,
-          hireDate: input.hireDate,
-          birthDate: normalizeEmpty(input.birthDate),
-          gender: normalizeEmpty(input.gender),
-          ethnicity: normalizeEmpty(input.ethnicity),
-          educationLevel: normalizeEmpty(input.educationLevel),
-          salary: normalizeNumber(input.salary),
-          employmentType: input.employmentType.trim(),
-          status: input.status.trim(),
-          managerId: input.managerId ?? null,
-          location: normalizeEmpty(input.location),
-          branchId: input.branchId ?? null,
-          terminationDate: normalizeEmpty(input.terminationDate),
-          notes: normalizeEmpty(input.notes),
-        })
-        .returning({ id: employees.id });
+      let employee;
+
+      try {
+        [employee] = await db
+          .insert(employees)
+          .values({
+            organizationId,
+            employeeCode: normalizeEmpty(input.employeeCode),
+            cpf: normalizeEmpty(input.cpf),
+            fullName: input.fullName.trim(),
+            email: normalizeEmpty(input.email),
+            phone: normalizeEmpty(input.phone),
+            departmentId: resolvedDepartmentId,
+            positionId: input.positionId ?? null,
+            hireDate: input.hireDate,
+            birthDate: normalizeEmpty(input.birthDate),
+            gender: normalizeEmpty(input.gender),
+            ethnicity: normalizeEmpty(input.ethnicity),
+            educationLevel: normalizeEmpty(input.educationLevel),
+            salary: normalizeNumber(input.salary),
+            employmentType: input.employmentType.trim(),
+            status: input.status.trim(),
+            managerId: input.managerId ?? null,
+            location: normalizeEmpty(input.location),
+            branchId: input.branchId ?? null,
+            terminationDate: normalizeEmpty(input.terminationDate),
+            notes: normalizeEmpty(input.notes),
+          })
+          .returning({ id: employees.id });
+      } catch (error) {
+        if (
+          isUniqueConstraintConflict(error, [
+            "employees_org_employee_code_idx",
+            "organization_id, employee_code",
+          ])
+        ) {
+          throw new HTTPException(409, {
+            message: "O código do colaborador deve ser único dentro da organização.",
+          });
+        }
+
+        throw error;
+      }
 
       if (!employee) {
         throw new HTTPException(500, {
@@ -1742,32 +1837,47 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
 
       const resolvedDepartmentId = input.departmentId ?? position?.departmentId ?? null;
 
-      await db
-        .update(employees)
-        .set({
-          employeeCode: normalizeEmpty(input.employeeCode),
-          cpf: normalizeEmpty(input.cpf),
-          fullName: input.fullName.trim(),
-          email: normalizeEmpty(input.email),
-          phone: normalizeEmpty(input.phone),
-          departmentId: resolvedDepartmentId,
-          positionId: input.positionId ?? null,
-          hireDate: input.hireDate,
-          birthDate: normalizeEmpty(input.birthDate),
-          gender: normalizeEmpty(input.gender),
-          ethnicity: normalizeEmpty(input.ethnicity),
-          educationLevel: normalizeEmpty(input.educationLevel),
-          salary: normalizeNumber(input.salary),
-          employmentType: input.employmentType.trim(),
-          status: input.status.trim(),
-          managerId: input.managerId ?? null,
-          location: normalizeEmpty(input.location),
-          branchId: input.branchId ?? null,
-          terminationDate: normalizeEmpty(input.terminationDate),
-          notes: normalizeEmpty(input.notes),
-          updatedAt: new Date(),
-        })
-        .where(eq(employees.id, employeeId));
+      try {
+        await db
+          .update(employees)
+          .set({
+            employeeCode: normalizeEmpty(input.employeeCode),
+            cpf: normalizeEmpty(input.cpf),
+            fullName: input.fullName.trim(),
+            email: normalizeEmpty(input.email),
+            phone: normalizeEmpty(input.phone),
+            departmentId: resolvedDepartmentId,
+            positionId: input.positionId ?? null,
+            hireDate: input.hireDate,
+            birthDate: normalizeEmpty(input.birthDate),
+            gender: normalizeEmpty(input.gender),
+            ethnicity: normalizeEmpty(input.ethnicity),
+            educationLevel: normalizeEmpty(input.educationLevel),
+            salary: normalizeNumber(input.salary),
+            employmentType: input.employmentType.trim(),
+            status: input.status.trim(),
+            managerId: input.managerId ?? null,
+            location: normalizeEmpty(input.location),
+            branchId: input.branchId ?? null,
+            terminationDate: normalizeEmpty(input.terminationDate),
+            notes: normalizeEmpty(input.notes),
+            updatedAt: new Date(),
+          })
+          .where(eq(employees.id, employeeId));
+      } catch (error) {
+        if (
+          isUniqueConstraintConflict(error, [
+            "employees_org_employee_code_idx",
+            "organization_id, employee_code",
+          ])
+        ) {
+          throw new HTTPException(409, {
+            message: "O código do colaborador deve ser único dentro da organização.",
+          });
+        }
+
+        throw error;
+      }
 
       return c.json(await serializeEmployee(db, employeeId));
     },

@@ -2,7 +2,6 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 
 import { BootstrapForm } from "@/components/bootstrap-form";
-import { CreateAccessForm } from "@/components/create-access-form";
 import { SignInForm } from "@/components/sign-in-form";
 import { getServerSession } from "@/lib/server-api";
 
@@ -12,7 +11,7 @@ type AuthPageProps = {
   }>;
 };
 
-type AuthMode = "sign-in" | "sign-up" | "create-account";
+type AuthMode = "sign-in" | "sign-up";
 
 const authModes: Record<
   AuthMode,
@@ -35,21 +34,10 @@ const authModes: Record<
     description:
       "Isso estabelece a base identitária da qual o restante do Daton depende: entidade legal, acesso inicial e a base de governança que depois pode se expandir para múltiplas unidades.",
   },
-  "create-account": {
-    kicker: "Recuperar acesso",
-    title:
-      "Crie uma nova credencial Clerk para recuperar o acesso local já existente no Daton.",
-    description:
-      "Use o mesmo e-mail corporativo já vinculado à sua organização. No primeiro acesso, o Daton reivindicará os vínculos locais por e-mail e reconstituirá sua sessão.",
-  },
 };
 
 const getAuthMode = (value?: string): AuthMode =>
-  value === "sign-up"
-    ? "sign-up"
-    : value === "create-account"
-      ? "create-account"
-      : "sign-in";
+  value === "sign-up" ? "sign-up" : "sign-in";
 
 export default async function AuthPage({ searchParams }: AuthPageProps) {
   const resolvedSearchParams = await searchParams;
@@ -92,13 +80,7 @@ export default async function AuthPage({ searchParams }: AuthPageProps) {
         <div className="auth-panel__form auth-panel__form--chrome">
           <p className="form-kicker">{content.kicker}</p>
           <p className="auth-panel__description">{content.description}</p>
-          {mode === "sign-in" ? (
-            <SignInForm />
-          ) : mode === "sign-up" ? (
-            <BootstrapForm session={session} />
-          ) : (
-            <CreateAccessForm />
-          )}
+          {mode === "sign-in" ? <SignInForm /> : <BootstrapForm session={session} />}
         </div>
       </section>
     </main>

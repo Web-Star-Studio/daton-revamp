@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { startTransition, useState } from "react";
+import { useState } from "react";
 
-import { useSignUp } from "@clerk/nextjs";
+import { useClerk, useSignUp } from "@clerk/nextjs";
 
 import { formatCnpj, type SessionResponse } from "@daton/contracts";
 
@@ -29,8 +29,10 @@ type VerificationStep = {
 
 export function BootstrapForm({ session }: BootstrapFormProps) {
   const router = useRouter();
+  const { loaded } = useClerk();
   const { signUp } = useSignUp();
   const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [verificationStep, setVerificationStep] = useState<VerificationStep | null>(
     null,
   );
@@ -46,6 +48,103 @@ export function BootstrapForm({ session }: BootstrapFormProps) {
     router.refresh();
   };
 
+  const handleCreate = async (payload: VerificationStep["payload"]) => {
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      if (isAuthenticated) {
+        await finishBootstrap(payload);
+        return;
+      }
+
+      if (!loaded || !signUp) {
+        throw new Error("A autenticação ainda está carregando. Tente novamente em instantes.");
+      }
+
+      const { firstName, lastName } = splitFullName(payload.adminFullName);
+      const createResult = await signUp.password({
+        emailAddress: payload.adminEmail,
+        password: payload.password,
+        firstName,
+        lastName,
+      });
+
+      if (createResult.error) {
+        throw createResult.error;
+      }
+
+      if (signUp.status === "complete") {
+        const finalizeResult = await signUp.finalize();
+
+        if (finalizeResult.error) {
+          throw finalizeResult.error;
+        }
+
+        await finishBootstrap(payload);
+        return;
+      }
+
+      const sendCodeResult = await signUp.verifications.sendEmailCode();
+
+      if (sendCodeResult.error) {
+        throw sendCodeResult.error;
+      }
+
+      setVerificationStep({
+        email: payload.adminEmail,
+        payload,
+      });
+    } catch (bootstrapError) {
+      setError(
+        getAuthErrorMessage(
+          bootstrapError,
+          "Não foi possível criar o ambiente agora.",
+        ),
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleVerify = async (code: string) => {
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      if (!loaded || !signUp || !verificationStep) {
+        throw new Error("A validação de e-mail ainda não está pronta. Tente novamente em instantes.");
+      }
+
+      const verifyResult = await signUp.verifications.verifyEmailCode({ code });
+
+      if (verifyResult.error) {
+        throw verifyResult.error;
+      }
+
+      if (signUp.status !== "complete") {
+        throw new Error("A verificação do e-mail não foi concluída.");
+      }
+
+      const finalizeResult = await signUp.finalize();
+
+      if (finalizeResult.error) {
+        throw finalizeResult.error;
+      }
+
+      await finishBootstrap(verificationStep.payload);
+    } catch (bootstrapError) {
+      setError(
+        getAuthErrorMessage(
+          bootstrapError,
+          "Não foi possível validar o e-mail do administrador agora.",
+        ),
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return verificationStep ? (
     <form
       className="form-grid"
@@ -53,37 +152,7 @@ export function BootstrapForm({ session }: BootstrapFormProps) {
         event.preventDefault();
         const formData = new FormData(event.currentTarget);
         const code = String(formData.get("code") ?? "").trim();
-
-        setError(null);
-
-        startTransition(async () => {
-          try {
-            const verifyResult = await signUp.verifications.verifyEmailCode({ code });
-
-            if (verifyResult.error) {
-              throw verifyResult.error;
-            }
-
-            if (signUp.status !== "complete") {
-              throw new Error("A verificação do e-mail não foi concluída.");
-            }
-
-            const finalizeResult = await signUp.finalize();
-
-            if (finalizeResult.error) {
-              throw finalizeResult.error;
-            }
-
-            await finishBootstrap(verificationStep.payload);
-          } catch (bootstrapError) {
-            setError(
-              getAuthErrorMessage(
-                bootstrapError,
-                "Não foi possível validar o e-mail do administrador agora.",
-              ),
-            );
-          }
-        });
+        void handleVerify(code);
       }}
     >
       <div className="field field--wide">
@@ -103,16 +172,19 @@ export function BootstrapForm({ session }: BootstrapFormProps) {
         validação, o ambiente inicial será criado.
       </p>
       {error ? <p className="form-error">{error}</p> : null}
-      <button className="button" type="submit">
-        Verificar e criar ambiente
+      <button className="button" disabled={isSubmitting || !loaded} type="submit">
+        {isSubmitting ? "Validando..." : "Verificar e criar ambiente"}
       </button>
       <button
         className="button button--ghost"
+        disabled={isSubmitting}
         type="button"
         onClick={() => {
           setVerificationStep(null);
           setError(null);
-          void signUp.reset();
+          if (signUp) {
+            void signUp.reset();
+          }
         }}
       >
         Voltar
@@ -125,7 +197,7 @@ export function BootstrapForm({ session }: BootstrapFormProps) {
         event.preventDefault();
         const formData = new FormData(event.currentTarget);
 
-        const payload = {
+        const payload: VerificationStep["payload"] = {
           legalName: String(formData.get("legalName") ?? ""),
           tradeName: String(formData.get("tradeName") ?? ""),
           legalIdentifier: String(formData.get("legalIdentifier") ?? ""),
@@ -133,47 +205,7 @@ export function BootstrapForm({ session }: BootstrapFormProps) {
           adminEmail: String(formData.get("adminEmail") ?? ""),
           password: String(formData.get("password") ?? ""),
         };
-
-        setError(null);
-
-        startTransition(async () => {
-          try {
-            if (isAuthenticated) {
-              await finishBootstrap(payload);
-              return;
-            }
-
-            const { firstName, lastName } = splitFullName(payload.adminFullName);
-            const createResult = await signUp.password({
-              emailAddress: payload.adminEmail,
-              password: payload.password,
-              firstName,
-              lastName,
-            });
-
-            if (createResult.error) {
-              throw createResult.error;
-            }
-
-            const sendCodeResult = await signUp.verifications.sendEmailCode();
-
-            if (sendCodeResult.error) {
-              throw sendCodeResult.error;
-            }
-
-            setVerificationStep({
-              email: payload.adminEmail,
-              payload,
-            });
-          } catch (bootstrapError) {
-            setError(
-              getAuthErrorMessage(
-                bootstrapError,
-                "Não foi possível criar o ambiente agora.",
-              ),
-            );
-          }
-        });
+        void handleCreate(payload);
       }}
     >
       <div className="field">
@@ -236,18 +268,16 @@ export function BootstrapForm({ session }: BootstrapFormProps) {
         </span>
       </label>
       {error ? <p className="form-error">{error}</p> : null}
-      <button className="button" type="submit">
-        {isAuthenticated ? "Criar ambiente Daton" : "Continuar com a criação"}
+      <button className="button" disabled={isSubmitting || (!isAuthenticated && !loaded)} type="submit">
+        {isSubmitting
+          ? "Processando..."
+          : isAuthenticated
+            ? "Criar ambiente Daton"
+            : "Continuar com a criação"}
       </button>
       <p className="form-note">
         Já possui um ambiente? <Link href="/auth?mode=sign-in">Entrar</Link>
       </p>
-      {!isAuthenticated ? (
-        <p className="form-note">
-          Sua organização já existe?{" "}
-          <Link href="/auth?mode=create-account">Criar credencial</Link>
-        </p>
-      ) : null}
     </form>
   );
 }

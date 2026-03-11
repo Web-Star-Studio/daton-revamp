@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { startTransition, useState } from "react";
+import { useState } from "react";
 
-import { useSignIn } from "@clerk/nextjs";
+import { useClerk, useSignIn } from "@clerk/nextjs";
 
 import { getAuthErrorMessage, resolvePostAuthRedirect } from "@/lib/auth-client";
 
@@ -14,8 +14,10 @@ type VerificationStep = {
 
 export function SignInForm() {
   const router = useRouter();
+  const { loaded } = useClerk();
   const { signIn } = useSignIn();
   const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [verificationStep, setVerificationStep] = useState<VerificationStep | null>(
     null,
   );
@@ -32,6 +34,85 @@ export function SignInForm() {
     router.refresh();
   };
 
+  const handlePasswordSignIn = async (email: string, password: string) => {
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      if (!loaded || !signIn) {
+        throw new Error("A autenticação ainda está carregando. Tente novamente em instantes.");
+      }
+
+      const result = await signIn.password({
+        emailAddress: email,
+        password,
+      });
+
+      if (result.error) {
+        throw result.error;
+      }
+
+      if (signIn.status === "complete") {
+        await finalizeSignIn();
+        return;
+      }
+
+      if (signIn.status === "needs_client_trust") {
+        const sendCodeResult = await signIn.emailCode.sendCode();
+
+        if (sendCodeResult.error) {
+          throw sendCodeResult.error;
+        }
+
+        setVerificationStep({ email });
+        return;
+      }
+
+      throw new Error("Não foi possível concluir a autenticação agora.");
+    } catch (signInError) {
+      setError(
+        getAuthErrorMessage(
+          signInError,
+          "Não foi possível autenticar com as credenciais informadas.",
+        ),
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleEmailCodeVerification = async (code: string) => {
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      if (!loaded || !signIn) {
+        throw new Error("A autenticação ainda está carregando. Tente novamente em instantes.");
+      }
+
+      const result = await signIn.emailCode.verifyCode({ code });
+
+      if (result.error) {
+        throw result.error;
+      }
+
+      if (signIn.status !== "complete") {
+        throw new Error("Não foi possível concluir a entrada no momento.");
+      }
+
+      await finalizeSignIn();
+    } catch (signInError) {
+      setError(
+        getAuthErrorMessage(
+          signInError,
+          "Não foi possível validar o código enviado por e-mail.",
+        ),
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return verificationStep ? (
     <form
       className="form-grid"
@@ -39,31 +120,7 @@ export function SignInForm() {
         event.preventDefault();
         const formData = new FormData(event.currentTarget);
         const code = String(formData.get("code") ?? "").trim();
-
-        setError(null);
-
-        startTransition(async () => {
-          try {
-            const result = await signIn.emailCode.verifyCode({ code });
-
-            if (result.error) {
-              throw result.error;
-            }
-
-            if (signIn.status !== "complete") {
-              throw new Error("Não foi possível concluir a entrada no momento.");
-            }
-
-            await finalizeSignIn();
-          } catch (signInError) {
-            setError(
-              getAuthErrorMessage(
-                signInError,
-                "Não foi possível validar o código enviado por e-mail.",
-              ),
-            );
-          }
-        });
+        void handleEmailCodeVerification(code);
       }}
     >
       <div className="field field--wide">
@@ -83,24 +140,23 @@ export function SignInForm() {
         confirmar este dispositivo.
       </p>
       {error ? <p className="form-error">{error}</p> : null}
-      <button className="button" type="submit">
-        Verificar e entrar
+      <button className="button" disabled={isSubmitting || !loaded} type="submit">
+        {isSubmitting ? "Validando..." : "Verificar e entrar"}
       </button>
       <button
         className="button button--ghost"
+        disabled={isSubmitting}
         type="button"
         onClick={() => {
           setVerificationStep(null);
           setError(null);
-          void signIn.reset();
+          if (signIn) {
+            void signIn.reset();
+          }
         }}
       >
         Voltar
       </button>
-      <p className="form-note">
-        Precisa recuperar o acesso?{" "}
-        <Link href="/auth?mode=create-account">Criar nova credencial</Link>
-      </p>
     </form>
   ) : (
     <form
@@ -110,46 +166,7 @@ export function SignInForm() {
         const formData = new FormData(event.currentTarget);
         const email = String(formData.get("email") ?? "").trim();
         const password = String(formData.get("password") ?? "");
-
-        setError(null);
-
-        startTransition(async () => {
-          try {
-            const result = await signIn.password({
-              identifier: email,
-              password,
-            });
-
-            if (result.error) {
-              throw result.error;
-            }
-
-            if (signIn.status === "complete") {
-              await finalizeSignIn();
-              return;
-            }
-
-            if (signIn.status === "needs_client_trust") {
-              const sendCodeResult = await signIn.emailCode.sendCode();
-
-              if (sendCodeResult.error) {
-                throw sendCodeResult.error;
-              }
-
-              setVerificationStep({ email });
-              return;
-            }
-
-            throw new Error("Não foi possível concluir a autenticação agora.");
-          } catch (signInError) {
-            setError(
-              getAuthErrorMessage(
-                signInError,
-                "Não foi possível autenticar com as credenciais informadas.",
-              ),
-            );
-          }
-        });
+        void handlePasswordSignIn(email, password);
       }}
     >
       <div className="field">
@@ -167,13 +184,9 @@ export function SignInForm() {
         />
       </div>
       {error ? <p className="form-error">{error}</p> : null}
-      <button className="button" type="submit">
-        Entrar no Daton
+      <button className="button" disabled={isSubmitting || !loaded} type="submit">
+        {isSubmitting ? "Entrando..." : "Entrar no Daton"}
       </button>
-      <p className="form-note">
-        Ainda não tem acesso?{" "}
-        <Link href="/auth?mode=create-account">Criar credencial</Link>
-      </p>
       <p className="form-note">
         Vai estruturar uma nova organização?{" "}
         <Link href="/auth?mode=sign-up">Criar ambiente</Link>

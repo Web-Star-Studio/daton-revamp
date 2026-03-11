@@ -9,15 +9,7 @@ test("auth shell exposes the Clerk-backed entry points", async ({ page }) => {
     }),
   ).toBeVisible();
   await expect(page.getByLabel("E-mail de trabalho")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Criar credencial" })).toBeVisible();
-
-  await page.goto("/auth?mode=create-account");
-  await expect(
-    page.getByRole("heading", {
-      name: /Crie uma nova credencial Clerk/i,
-    }),
-  ).toBeVisible();
-  await expect(page.getByLabel("Nome completo")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Criar ambiente" })).toBeVisible();
 
   await page.goto("/auth?mode=sign-up");
   await expect(
@@ -26,6 +18,7 @@ test("auth shell exposes the Clerk-backed entry points", async ({ page }) => {
     }),
   ).toBeVisible();
   await expect(page.getByLabel("Razão social")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Criar credencial" })).toHaveCount(0);
 });
 
 test("unauthenticated app access redirects to sign-in", async ({ page }) => {

@@ -14,7 +14,7 @@ import { recordAuditEvent } from "../../lib/audit";
 import { HTTPException } from "../../lib/errors";
 import { createRouteContext, type AppRouteContext } from "../../lib/route-context";
 import type { AppDbExecutor } from "../../lib/session";
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyBaseLogger, FastifyPluginAsync } from "fastify";
 
 const transientErrorCodes = new Set([
   "ECONNREFUSED",
@@ -26,6 +26,7 @@ const transientErrorCodes = new Set([
 
 const classifyBootstrapError = (
   error: unknown,
+  logger: Pick<FastifyBaseLogger, "warn">,
 ): { message: string; status: 400 | 500 | 502 | 503 } => {
   const status =
     error &&
@@ -92,7 +93,10 @@ const classifyBootstrapError = (
       };
     }
 
-    console.warn("Unexpected TypeError while bootstrapping organization.", error);
+    logger.warn(
+      { err: error },
+      "Unexpected TypeError while bootstrapping organization.",
+    );
   }
 
   return {
@@ -173,7 +177,7 @@ const bootstrapPlugin: FastifyPluginAsync = async (fastify) => {
         throw error;
       }
 
-      const classified = classifyBootstrapError(error);
+      const classified = classifyBootstrapError(error, request.log);
 
       throw new HTTPException(classified.status, {
         message: classified.message,
@@ -192,7 +196,15 @@ const bootstrapPlugin: FastifyPluginAsync = async (fastify) => {
       });
     } catch (error) {
       Sentry.captureException(error);
-      throw error;
+      request.log.error(
+        {
+          err: error,
+          action: "organization.bootstrap",
+          organizationId: result.organization.id,
+          actorUserId: result.workosUser.id,
+        },
+        "Failed to record bootstrap audit event.",
+      );
     }
 
     return c.json({

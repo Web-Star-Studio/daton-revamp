@@ -5,7 +5,6 @@ import {
   branchIdSchema,
   createCreateBranchSchema,
   createUpdateBranchSchema,
-  roles,
   type CreateBranchInput,
   type UpdateBranchInput,
 } from "@daton/contracts";
@@ -28,8 +27,6 @@ const normalizeEmpty = (value?: string | null) => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 };
-
-const roleOrder = new Map(roles.map((role, index) => [role, index]));
 
 const parseCreateBranchInput = async (c: AppRouteContext): Promise<CreateBranchInput> => {
   try {
@@ -64,15 +61,34 @@ const parseUpdateBranchInput = async (c: AppRouteContext): Promise<UpdateBranchI
 };
 
 const getActiveManagerId = async (db: AppDbExecutor, branchId: string) => {
-  const [manager] = await db
+  const managersByBranchId = await getActiveManagersByBranchIds(db, [branchId]);
+  return managersByBranchId.get(branchId) ?? null;
+};
+
+const getActiveManagersByBranchIds = async (
+  db: AppDbExecutor,
+  branchIds: string[],
+) => {
+  if (branchIds.length === 0) {
+    return new Map<string, string>();
+  }
+
+  const assignments = await db
     .select({
+      branchId: branchManagerAssignments.branchId,
       memberId: branchManagerAssignments.memberId,
     })
     .from(branchManagerAssignments)
-    .where(and(eq(branchManagerAssignments.branchId, branchId), isNull(branchManagerAssignments.unassignedAt)))
-    .limit(1);
+    .where(
+      and(
+        inArray(branchManagerAssignments.branchId, branchIds),
+        isNull(branchManagerAssignments.unassignedAt),
+      ),
+    );
 
-  return manager?.memberId ?? null;
+  return new Map(
+    assignments.map((assignment) => [assignment.branchId, assignment.memberId]),
+  );
 };
 
 const assertParentBranch = async (
@@ -209,6 +225,20 @@ const assignBranchManager = async (
           isNull(memberRoleAssignments.revokedAt),
         ),
       );
+
+    if (!input.memberId) {
+      await recordAuditEvent(db, {
+        action: "branch.unassign_manager",
+        entityType: "branch",
+        entityId: input.branchId,
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        actorMemberId: input.actorMemberId,
+        metadata: {
+          managerMemberId: currentManagerId,
+        },
+      });
+    }
   }
 
   if (!input.memberId) {
@@ -313,146 +343,23 @@ const branchesPlugin: FastifyPluginAsync = async (fastify) => {
         ),
       );
 
-    const managers = await Promise.all(
-      records.map(async (branch) => ({
-        ...branch,
-        managerMemberId: await getActiveManagerId(db, branch.id),
-      })),
+    const managersByBranchId = await getActiveManagersByBranchIds(
+      db,
+      records.map((branch) => branch.id),
     );
+    const managers = records.map((branch) => ({
+      ...branch,
+      managerMemberId: managersByBranchId.get(branch.id) ?? null,
+    }));
 
     return c.json(managers);
   });
-
-  fastify.get(
-    "/members",
+  fastify.post(
+    "/branches",
     {
-      preHandler: requireRoles("owner", "admin"),
+      preHandler: requireRoles("owner", "admin", "hr_admin"),
     },
     async (request, reply) => {
-      const c = createRouteContext(request, reply);
-      const snapshot = c.get("sessionSnapshot");
-
-      if (!snapshot?.organization) {
-        throw new HTTPException(401, { message: "Autenticação obrigatória." });
-      }
-
-      const db = c.get("db");
-      const [records, activeBranches, assignments, managerAssignments] =
-        await Promise.all([
-          db
-            .select({
-              id: organizationMembers.id,
-              userId: organizationMembers.userId,
-              fullName: organizationMembers.fullName,
-              email: organizationMembers.email,
-              status: organizationMembers.status,
-            })
-            .from(organizationMembers)
-            .where(eq(organizationMembers.organizationId, snapshot.organization.id)),
-          db
-            .select({
-              id: branches.id,
-            })
-            .from(branches)
-            .where(
-              and(
-                eq(branches.organizationId, snapshot.organization.id),
-                eq(branches.status, "active"),
-              ),
-            ),
-          db
-            .select({
-              memberId: memberRoleAssignments.memberId,
-              role: memberRoleAssignments.role,
-              branchScopeId: memberRoleAssignments.branchScopeId,
-            })
-            .from(memberRoleAssignments)
-            .where(
-              and(
-                eq(memberRoleAssignments.organizationId, snapshot.organization.id),
-                isNull(memberRoleAssignments.revokedAt),
-              ),
-            ),
-          db
-            .select({
-              memberId: branchManagerAssignments.memberId,
-              branchId: branchManagerAssignments.branchId,
-            })
-            .from(branchManagerAssignments)
-            .innerJoin(branches, eq(branchManagerAssignments.branchId, branches.id))
-            .where(
-              and(
-                eq(branchManagerAssignments.organizationId, snapshot.organization.id),
-                eq(branches.organizationId, snapshot.organization.id),
-                eq(branches.status, "active"),
-                isNull(branchManagerAssignments.unassignedAt),
-              ),
-            ),
-        ]);
-
-      const activeBranchIds = activeBranches.map((branch) => branch.id);
-      const activeBranchSet = new Set(activeBranchIds);
-      const rolesByMember = new Map<string, Set<(typeof roles)[number]>>();
-      const branchIdsByMember = new Map<string, Set<string>>();
-      const managedBranchIdsByMember = new Map<string, Set<string>>();
-
-      assignments.forEach((assignment) => {
-        const currentRoles = rolesByMember.get(assignment.memberId) ?? new Set();
-        currentRoles.add(assignment.role);
-        rolesByMember.set(assignment.memberId, currentRoles);
-
-        if (!assignment.branchScopeId || !activeBranchSet.has(assignment.branchScopeId)) {
-          return;
-        }
-
-        const currentBranches = branchIdsByMember.get(assignment.memberId) ?? new Set<string>();
-        currentBranches.add(assignment.branchScopeId);
-        branchIdsByMember.set(assignment.memberId, currentBranches);
-      });
-
-      managerAssignments.forEach((assignment) => {
-        const currentManagedBranches =
-          managedBranchIdsByMember.get(assignment.memberId) ?? new Set<string>();
-        currentManagedBranches.add(assignment.branchId);
-        managedBranchIdsByMember.set(assignment.memberId, currentManagedBranches);
-      });
-
-      const collator = new Intl.Collator("pt-BR");
-
-      return c.json(
-        [...records]
-          .map((record) => {
-            const memberRoles = Array.from(rolesByMember.get(record.id) ?? []).sort(
-              (left, right) =>
-                (roleOrder.get(left) ?? Number.MAX_SAFE_INTEGER) -
-                (roleOrder.get(right) ?? Number.MAX_SAFE_INTEGER),
-            );
-            const hasGlobalAccess = memberRoles.some((role) =>
-              ["owner", "admin", "hr_admin", "document_controller"].includes(role),
-            );
-            const managedBranchIds = Array.from(
-              managedBranchIdsByMember.get(record.id) ?? [],
-            ).sort((left, right) => left.localeCompare(right));
-            const scopedBranchIds = Array.from(
-              branchIdsByMember.get(record.id) ?? [],
-            ).sort((left, right) => left.localeCompare(right));
-
-            return {
-              ...record,
-              roles: memberRoles,
-              branchIds: hasGlobalAccess
-                ? activeBranchIds
-                : Array.from(new Set([...scopedBranchIds, ...managedBranchIds])),
-              managedBranchIds,
-              hasGlobalAccess,
-            };
-          })
-          .sort((left, right) => collator.compare(left.fullName, right.fullName)),
-      );
-    },
-  );
-
-  fastify.post("/branches", async (request, reply) => {
     const c = createRouteContext(request, reply);
     const snapshot = c.get("sessionSnapshot");
 
@@ -527,12 +434,13 @@ const branchesPlugin: FastifyPluginAsync = async (fastify) => {
     });
 
     return c.json(await serializeBranch(db, result.branchId), 201);
-  });
+    },
+  );
 
   fastify.get(
     "/branches/:branchId",
     {
-      preHandler: requireRoles("owner", "admin"),
+      preHandler: requireRoles("owner", "admin", "branch_manager"),
     },
     async (request, reply) => {
       const c = createRouteContext(request, reply, {
@@ -653,7 +561,7 @@ const branchesPlugin: FastifyPluginAsync = async (fastify) => {
         });
 
         await recordAuditEvent(tx, {
-          action: input.status === "archived" ? "branch.archive" : "branch.update",
+          action: nextStatus === "archived" ? "branch.archive" : "branch.update",
           entityType: "branch",
           entityId: branchId,
           organizationId: organization.id,

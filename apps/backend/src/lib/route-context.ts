@@ -15,7 +15,7 @@ export type AppRouteContext = {
   get(key: "sessionContext"): SessionContext | null;
   get(key: "sessionSnapshot"): SessionSnapshot | null;
   req: {
-    json: () => Promise<unknown>;
+    json: () => unknown;
     valid: (target: "param") => unknown;
   };
   json: (payload: unknown, status?: number) => Promise<FastifyReply>;
@@ -52,13 +52,13 @@ export const createRouteContext = (
     env: request.server.apiEnv,
     get,
     req: {
-      json: async () => request.body,
+      json: () => request.body,
       valid: (target) => {
         if (target === "param") {
           return validated.param ?? request.params;
         }
 
-        return undefined;
+        throw new Error(`Unsupported validation target: ${target}; supported: param`);
       },
     },
     json: async (payload, status = 200) => reply.code(status).send(payload),

@@ -24,7 +24,7 @@ const apiPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.decorateRequest("sessionSnapshot", null);
 
   fastify.addHook("preHandler", async (request) => {
-    const services = getApiServices(fastify.apiEnv);
+    const services = await getApiServices(fastify.apiEnv);
     const authorizationHeader = request.headers.authorization;
     const sessionContext = await resolveSessionContext(
       services.db,

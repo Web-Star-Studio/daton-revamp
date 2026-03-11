@@ -33,45 +33,17 @@ const runtimeEnvSchema = z.object({
 });
 
 export type RuntimeEnv = z.infer<typeof runtimeEnvSchema>;
-export type AppEnvironment = {
-  DATABASE_URL?: string;
-  WORKOS_API_KEY: string;
-  WORKOS_CLIENT_ID: string;
-  WORKOS_AUTHKIT_DOMAIN?: string;
-  NEXT_PUBLIC_APP_URL: string;
-  NEXT_PUBLIC_API_URL: string;
-  CORS_ORIGIN: string;
-  SENTRY_DSN?: string;
-  SENTRY_AUTH_TOKEN?: string;
-  SENTRY_ORG?: string;
-  SENTRY_PROJECT?: string;
-  SENTRY_ENVIRONMENT?: string;
-  SENTRY_RELEASE?: string;
-  SENTRY_TRACES_SAMPLE_RATE?: string;
-  ALLOW_FICTIONAL_CNPJ?: "true" | "false";
-};
+export type AppEnvironment = RuntimeEnv;
 
 export const parseRuntimeEnv = (
   environment: NodeJS.ProcessEnv = process.env,
 ): RuntimeEnv => runtimeEnvSchema.parse(loadLocalDevelopmentEnv(environment));
 
-export const toApiEnvironment = (env: RuntimeEnv): AppEnvironment => ({
-  DATABASE_URL: env.DATABASE_URL,
-  WORKOS_API_KEY: env.WORKOS_API_KEY,
-  WORKOS_CLIENT_ID: env.WORKOS_CLIENT_ID,
-  WORKOS_AUTHKIT_DOMAIN: env.WORKOS_AUTHKIT_DOMAIN,
-  NEXT_PUBLIC_APP_URL: env.NEXT_PUBLIC_APP_URL,
-  NEXT_PUBLIC_API_URL: env.NEXT_PUBLIC_API_URL,
-  CORS_ORIGIN: env.CORS_ORIGIN,
-  SENTRY_DSN: env.SENTRY_DSN,
-  SENTRY_AUTH_TOKEN: env.SENTRY_AUTH_TOKEN,
-  SENTRY_ORG: env.SENTRY_ORG,
-  SENTRY_PROJECT: env.SENTRY_PROJECT,
-  SENTRY_ENVIRONMENT: env.SENTRY_ENVIRONMENT,
-  SENTRY_RELEASE: env.SENTRY_RELEASE,
-  SENTRY_TRACES_SAMPLE_RATE: env.SENTRY_TRACES_SAMPLE_RATE,
-  ALLOW_FICTIONAL_CNPJ: env.ALLOW_FICTIONAL_CNPJ,
-});
+export const toApiEnvironment = (env: RuntimeEnv): AppEnvironment => env;
 
 export const toWorkOsManagementEnv = (env: AppEnvironment) =>
-  parseWorkOsManagementEnv(env);
+  parseWorkOsManagementEnv({
+    WORKOS_API_KEY: env.WORKOS_API_KEY,
+    WORKOS_CLIENT_ID: env.WORKOS_CLIENT_ID,
+    WORKOS_AUTHKIT_DOMAIN: env.WORKOS_AUTHKIT_DOMAIN,
+  });

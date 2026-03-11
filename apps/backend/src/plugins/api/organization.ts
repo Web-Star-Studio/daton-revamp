@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { ZodError } from "zod";
 
 import {
+  roles,
   createCreateDepartmentSchema,
   createCreateEmployeeSchema,
   createCreatePositionSchema,
@@ -27,10 +28,12 @@ import {
 } from "@daton/contracts";
 import {
   auditEvents,
+  branchManagerAssignments,
   branches,
   employees,
   departments,
   departmentBranchAssignments,
+  memberRoleAssignments,
   organizationMembers,
   organizations,
   positions,
@@ -40,7 +43,7 @@ import { requireRoles } from "../../lib/auth";
 import { recordAuditEvent } from "../../lib/audit";
 import { HTTPException } from "../../lib/errors";
 import { createRouteContext, type AppRouteContext } from "../../lib/route-context";
-import type { AppDbExecutor } from "../../lib/session";
+import type { AppDbExecutor, SessionSnapshot } from "../../lib/session";
 import { parseOrThrow } from "../../lib/validation";
 import type { FastifyPluginAsync } from "fastify";
 
@@ -48,6 +51,14 @@ const normalizeEmpty = (value?: string | null) => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 };
+
+const roleOrder = new Map(roles.map((role, index) => [role, index]));
+const fullEmployeeAccessRoles = new Set([
+  "owner",
+  "admin",
+  "hr_admin",
+  "document_controller",
+]);
 
 const normalizeNumber = (value?: number | null) =>
   typeof value === "number" && Number.isFinite(value) ? String(value) : null;
@@ -840,6 +851,155 @@ const serializeEmployee = async (db: AppDbExecutor, employeeId: string) => {
   });
 };
 
+const listOrganizationMembers = async (
+  db: AppDbExecutor,
+  organizationId: string,
+) => {
+  const [records, activeBranches, assignments, managerAssignments] =
+    await Promise.all([
+      db
+        .select({
+          id: organizationMembers.id,
+          userId: organizationMembers.userId,
+          fullName: organizationMembers.fullName,
+          email: organizationMembers.email,
+          status: organizationMembers.status,
+        })
+        .from(organizationMembers)
+        .where(eq(organizationMembers.organizationId, organizationId)),
+      db
+        .select({
+          id: branches.id,
+        })
+        .from(branches)
+        .where(
+          and(
+            eq(branches.organizationId, organizationId),
+            eq(branches.status, "active"),
+          ),
+        ),
+      db
+        .select({
+          memberId: memberRoleAssignments.memberId,
+          role: memberRoleAssignments.role,
+          branchScopeId: memberRoleAssignments.branchScopeId,
+        })
+        .from(memberRoleAssignments)
+        .where(
+          and(
+            eq(memberRoleAssignments.organizationId, organizationId),
+            isNull(memberRoleAssignments.revokedAt),
+          ),
+        ),
+      db
+        .select({
+          memberId: branchManagerAssignments.memberId,
+          branchId: branchManagerAssignments.branchId,
+        })
+        .from(branchManagerAssignments)
+        .innerJoin(branches, eq(branchManagerAssignments.branchId, branches.id))
+        .where(
+          and(
+            eq(branchManagerAssignments.organizationId, organizationId),
+            eq(branches.organizationId, organizationId),
+            eq(branches.status, "active"),
+            isNull(branchManagerAssignments.unassignedAt),
+          ),
+        ),
+    ]);
+
+  const activeBranchIds = activeBranches.map((branch) => branch.id);
+  const activeBranchSet = new Set(activeBranchIds);
+  const rolesByMember = new Map<string, Set<(typeof roles)[number]>>();
+  const branchIdsByMember = new Map<string, Set<string>>();
+  const managedBranchIdsByMember = new Map<string, Set<string>>();
+
+  assignments.forEach((assignment) => {
+    const currentRoles = rolesByMember.get(assignment.memberId) ?? new Set();
+    currentRoles.add(assignment.role);
+    rolesByMember.set(assignment.memberId, currentRoles);
+
+    if (!assignment.branchScopeId || !activeBranchSet.has(assignment.branchScopeId)) {
+      return;
+    }
+
+    const currentBranches = branchIdsByMember.get(assignment.memberId) ?? new Set<string>();
+    currentBranches.add(assignment.branchScopeId);
+    branchIdsByMember.set(assignment.memberId, currentBranches);
+  });
+
+  managerAssignments.forEach((assignment) => {
+    const currentManagedBranches =
+      managedBranchIdsByMember.get(assignment.memberId) ?? new Set<string>();
+    currentManagedBranches.add(assignment.branchId);
+    managedBranchIdsByMember.set(assignment.memberId, currentManagedBranches);
+  });
+
+  const collator = new Intl.Collator("pt-BR");
+
+  return [...records]
+    .map((record) => {
+      const memberRoles = Array.from(rolesByMember.get(record.id) ?? []).sort(
+        (left, right) =>
+          (roleOrder.get(left) ?? Number.MAX_SAFE_INTEGER) -
+          (roleOrder.get(right) ?? Number.MAX_SAFE_INTEGER),
+      );
+      const hasGlobalAccess = memberRoles.some((role) =>
+        ["owner", "admin", "hr_admin", "document_controller"].includes(role),
+      );
+      const managedBranchIds = Array.from(
+        managedBranchIdsByMember.get(record.id) ?? [],
+      ).sort((left, right) => left.localeCompare(right));
+      const scopedBranchIds = Array.from(
+        branchIdsByMember.get(record.id) ?? [],
+      ).sort((left, right) => left.localeCompare(right));
+
+      return {
+        ...record,
+        roles: memberRoles,
+        branchIds: hasGlobalAccess
+          ? activeBranchIds
+          : Array.from(new Set([...scopedBranchIds, ...managedBranchIds])),
+        managedBranchIds,
+        hasGlobalAccess,
+      };
+    })
+    .sort((left, right) => collator.compare(left.fullName, right.fullName));
+};
+
+const resolveEmployeeReadScope = (snapshot: SessionSnapshot) => {
+  if (snapshot.effectiveRoles.some((role) => fullEmployeeAccessRoles.has(role))) {
+    return { branchIds: null as string[] | null };
+  }
+
+  if (snapshot.effectiveRoles.includes("branch_manager")) {
+    return { branchIds: snapshot.branchScope };
+  }
+
+  throw new HTTPException(403, {
+    message: "Você não tem acesso a estes colaboradores.",
+  });
+};
+
+const assertCanReadEmployee = (
+  snapshot: SessionSnapshot,
+  branchId: string | null,
+) => {
+  const scope = resolveEmployeeReadScope(snapshot);
+
+  if (scope.branchIds === null) {
+    return;
+  }
+
+  if (branchId && scope.branchIds.includes(branchId)) {
+    return;
+  }
+
+  throw new HTTPException(403, {
+    message: "Você não tem acesso a este colaborador.",
+  });
+};
+
 const serializeOrganization = async (
   db: AppDbExecutor,
   organizationId: string,
@@ -950,6 +1110,13 @@ function toNotificationSummary(record: {
       href: `/app/branches/${record.entityId}`,
       level: "warning",
       title: "Gestor de unidade alterado",
+    },
+    "branch.unassign_manager": {
+      actionLabel: "Abrir unidade",
+      description: "A gestão responsável pela unidade foi removida.",
+      href: `/app/branches/${record.entityId}`,
+      level: "warning",
+      title: "Gestor de unidade removido",
     },
     "department.create": {
       actionLabel: "Ver departamentos",
@@ -1084,6 +1251,25 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
 
     return c.json(records.map(toNotificationSummary));
   });
+
+  fastify.get(
+    "/members",
+    {
+      preHandler: requireRoles("owner", "admin"),
+    },
+    async (request, reply) => {
+      const c = createRouteContext(request, reply);
+      const snapshot = c.get("sessionSnapshot");
+
+      if (!snapshot?.organization) {
+        throw new HTTPException(401, { message: "Autenticação obrigatória." });
+      }
+
+      return c.json(
+        await listOrganizationMembers(c.get("db"), snapshot.organization.id),
+      );
+    },
+  );
 
   fastify.get(
     "/departments",
@@ -1320,11 +1506,21 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
       throw new HTTPException(401, { message: "Autenticação obrigatória." });
     }
 
+    const scope = resolveEmployeeReadScope(snapshot);
+    if (scope.branchIds !== null && scope.branchIds.length === 0) {
+      return c.json([]);
+    }
+
     const db = c.get("db");
     const records = await db
       .select({ id: employees.id })
       .from(employees)
-      .where(eq(employees.organizationId, snapshot.organization.id));
+      .where(
+        and(
+          eq(employees.organizationId, snapshot.organization.id),
+          scope.branchIds === null ? undefined : inArray(employees.branchId, scope.branchIds),
+        ),
+      );
 
     const serialized = await Promise.all(
       records.map((record) => serializeEmployee(db, record.id)),
@@ -1348,7 +1544,7 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
     const { employeeId } = c.req.valid("param") as { employeeId: string };
     const db = c.get("db");
     const [employee] = await db
-      .select({ id: employees.id })
+      .select({ id: employees.id, branchId: employees.branchId })
       .from(employees)
       .where(
         and(
@@ -1361,6 +1557,8 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
     if (!employee) {
       throw new HTTPException(404, { message: "Colaborador não encontrado." });
     }
+
+    assertCanReadEmployee(snapshot, employee.branchId);
 
     return c.json(await serializeEmployee(db, employeeId));
   });

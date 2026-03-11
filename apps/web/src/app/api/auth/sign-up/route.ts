@@ -89,7 +89,12 @@ export async function POST(request: Request) {
         typeof bootstrapRawPayload.message === "string"
           ? bootstrapRawPayload.message
           : "Não foi possível criar o ambiente agora.";
-      throw new Error(message);
+      return NextResponse.json(
+        {
+          message,
+        },
+        { status: bootstrapResponse.status },
+      );
     }
 
     const bootstrapPayload = bootstrapResponseSchema.parse(bootstrapRawPayload);

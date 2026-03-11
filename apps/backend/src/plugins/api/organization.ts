@@ -12,6 +12,7 @@ import {
   departmentIdSchema,
   employeeIdSchema,
   employeeSummarySchema,
+  organizationDirectoryMemberListSchema,
   organizationSummarySchema,
   positionIdSchema,
   positionSummarySchema,
@@ -1266,7 +1267,9 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
       }
 
       return c.json(
-        await listOrganizationMembers(c.get("db"), snapshot.organization.id),
+        organizationDirectoryMemberListSchema.parse(
+          await listOrganizationMembers(c.get("db"), snapshot.organization.id),
+        ),
       );
     },
   );

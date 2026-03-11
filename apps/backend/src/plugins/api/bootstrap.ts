@@ -1,5 +1,4 @@
 import * as Sentry from "@sentry/node";
-import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
 
 import { bootstrapOrganizationWithWorkOs } from "@daton/auth";
@@ -8,12 +7,11 @@ import {
   organizationMemberSummarySchema,
   organizationSummarySchema,
 } from "@daton/contracts";
-import { organizations } from "@daton/db";
 
 import { recordAuditEvent } from "../../lib/audit";
 import { HTTPException } from "../../lib/errors";
 import { createRouteContext, type AppRouteContext } from "../../lib/route-context";
-import type { AppDbExecutor } from "../../lib/session";
+import type { AppDbExecutor, SessionSnapshot } from "../../lib/session";
 import type { FastifyBaseLogger, FastifyPluginAsync } from "fastify";
 
 const transientErrorCodes = new Set([
@@ -24,10 +22,49 @@ const transientErrorCodes = new Set([
   "EAI_AGAIN",
 ]);
 
+const normalizeComparableName = (value: string | null | undefined) =>
+  value?.trim().replace(/\s+/g, " ").toLocaleLowerCase() ?? null;
+
+const isLegalIdentifierConflict = (error: unknown) => {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code =
+    "code" in error && typeof error.code === "string" ? error.code : null;
+
+  if (code !== "23505") {
+    return false;
+  }
+
+  const candidates = [
+    "constraint" in error && typeof error.constraint === "string"
+      ? error.constraint
+      : null,
+    "constraint_name" in error && typeof error.constraint_name === "string"
+      ? error.constraint_name
+      : null,
+    "column" in error && typeof error.column === "string" ? error.column : null,
+    "column_name" in error && typeof error.column_name === "string"
+      ? error.column_name
+      : null,
+    "detail" in error && typeof error.detail === "string" ? error.detail : null,
+    "message" in error && typeof error.message === "string" ? error.message : null,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.toLowerCase());
+
+  return candidates.some(
+    (value) =>
+      value.includes("organizations_legal_identifier_idx") ||
+      value.includes("legal_identifier"),
+  );
+};
+
 const classifyBootstrapError = (
   error: unknown,
   logger: Pick<FastifyBaseLogger, "warn">,
-): { message: string; status: 400 | 500 | 502 | 503 } => {
+): { message: string; status: 400 | 409 | 500 | 502 | 503 } => {
   const status =
     error &&
     typeof error === "object" &&
@@ -49,6 +86,13 @@ const classifyBootstrapError = (
     typeof error.name === "string"
       ? error.name
       : null;
+
+  if (isLegalIdentifierConflict(error)) {
+    return {
+      message: "Já existe uma organização com este CNPJ.",
+      status: 409,
+    };
+  }
 
   if (
     status === 400 ||
@@ -121,6 +165,29 @@ const parseBootstrapInput = async (c: AppRouteContext) => {
   }
 };
 
+type BootstrapInput = Awaited<ReturnType<typeof parseBootstrapInput>>;
+
+const assertAuthenticatedBootstrapIdentity = (
+  snapshot: SessionSnapshot,
+  input: BootstrapInput,
+) => {
+  if (input.adminEmail !== snapshot.user.email) {
+    throw new HTTPException(400, {
+      message: "O e-mail do administrador deve corresponder ao usuário autenticado.",
+    });
+  }
+
+  if (
+    snapshot.user.name &&
+    normalizeComparableName(input.adminFullName) !==
+      normalizeComparableName(snapshot.user.name)
+  ) {
+    throw new HTTPException(400, {
+      message: "O nome do administrador deve corresponder ao usuário autenticado.",
+    });
+  }
+};
+
 const bootstrapPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.post("/bootstrap/organization", async (request, reply) => {
     const c = createRouteContext(request, reply);
@@ -136,22 +203,14 @@ const bootstrapPlugin: FastifyPluginAsync = async (fastify) => {
     const input = await parseBootstrapInput(c);
     const db = c.get("db");
 
-    const [existingOrganization] = await db
-      .select({ id: organizations.id })
-      .from(organizations)
-      .where(eq(organizations.legalIdentifier, input.legalIdentifier))
-      .limit(1);
-
-    if (existingOrganization) {
-      throw new HTTPException(409, {
-        message: "Já existe uma organização com este CNPJ.",
-      });
-    }
-
     if (!snapshot && !input.password) {
       throw new HTTPException(400, {
         message: "A senha inicial é obrigatória para criar o primeiro acesso.",
       });
+    }
+
+    if (snapshot) {
+      assertAuthenticatedBootstrapIdentity(snapshot, input);
     }
 
     let result;

@@ -28,6 +28,8 @@ const normalizeEmpty = (value?: string | null) => {
   return trimmed ? trimmed : null;
 };
 
+const branchListGlobalRoles = new Set(["owner", "admin", "hr_admin"]);
+
 const parseCreateBranchInput = async (c: AppRouteContext): Promise<CreateBranchInput> => {
   try {
     return createCreateBranchSchema({
@@ -293,11 +295,20 @@ const assignBranchManager = async (
   return input.memberId;
 };
 
-const serializeBranch = async (db: AppDbExecutor, branchId: string) => {
+const serializeBranch = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  branchId: string,
+) => {
   const [branch] = await db
     .select()
     .from(branches)
-    .where(eq(branches.id, branchId))
+    .where(
+      and(
+        eq(branches.id, branchId),
+        eq(branches.organizationId, organizationId),
+      ),
+    )
     .limit(1);
 
   if (!branch) {
@@ -324,14 +335,23 @@ const branchesPlugin: FastifyPluginAsync = async (fastify) => {
     const organization = snapshot.organization;
 
     const db = c.get("db");
+    const hasGlobalBranchListAccess = snapshot.effectiveRoles.some((role) =>
+      branchListGlobalRoles.has(role),
+    );
     const visibleBranchIds = snapshot.branchScope.length
       ? snapshot.branchScope
-      : (
-          await db
-            .select({ id: branches.id })
-            .from(branches)
-            .where(eq(branches.organizationId, organization.id))
-        ).map((branch) => branch.id);
+      : hasGlobalBranchListAccess
+        ? (
+            await db
+              .select({ id: branches.id })
+              .from(branches)
+              .where(eq(branches.organizationId, organization.id))
+          ).map((branch) => branch.id)
+        : [];
+
+    if (visibleBranchIds.length === 0) {
+      return c.json([]);
+    }
 
     const records = await db
       .select()
@@ -433,7 +453,7 @@ const branchesPlugin: FastifyPluginAsync = async (fastify) => {
       };
     });
 
-    return c.json(await serializeBranch(db, result.branchId), 201);
+    return c.json(await serializeBranch(db, organization.id, result.branchId), 201);
     },
   );
 
@@ -464,7 +484,9 @@ const branchesPlugin: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      return c.json(await serializeBranch(c.get("db"), branchId));
+      return c.json(
+        await serializeBranch(c.get("db"), snapshot.organization.id, branchId),
+      );
     },
   );
 
@@ -574,7 +596,7 @@ const branchesPlugin: FastifyPluginAsync = async (fastify) => {
         });
       });
 
-      return c.json(await serializeBranch(db, branchId));
+      return c.json(await serializeBranch(db, organization.id, branchId));
     },
   );
 };

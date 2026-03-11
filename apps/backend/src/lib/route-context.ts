@@ -55,7 +55,13 @@ export const createRouteContext = (
       json: () => request.body,
       valid: (target) => {
         if (target === "param") {
-          return validated.param ?? request.params;
+          if (validated.param == null) {
+            throw new Error(
+              `Unsupported validation target: param; validated.param is missing and request.params fallback is disabled.`,
+            );
+          }
+
+          return validated.param;
         }
 
         throw new Error(`Unsupported validation target: ${target}; supported: param`);

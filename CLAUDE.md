@@ -10,7 +10,7 @@ Daton is an organization/HR management platform. pnpm monorepo deploying to Rend
 
 - **apps/backend** — Fastify REST API (port 8787)
 - **apps/web** — Next.js 16 frontend (port 3000)
-- **packages/auth** — Better Auth config, custom PBKDF2 password hashing with legacy scrypt migration
+- **packages/auth** — WorkOS integration, JOSE JWT session encryption, session snapshot resolution
 - **packages/db** — Drizzle ORM schemas (PostgreSQL), migrations, and client
 - **packages/contracts** — Shared Zod schemas, enums (roles, statuses), and TypeScript types
 
@@ -33,7 +33,12 @@ pnpm db:migrate           # Run migrations
 pnpm db:studio            # Open Drizzle Studio
 
 # Testing
-pnpm test:e2e             # Playwright E2E tests
+pnpm test:e2e             # Playwright E2E tests (Chromium, against localhost:3000)
+
+# Docker management
+pnpm dev:docker:logs      # View Docker Compose logs
+pnpm dev:docker:down      # Stop Docker Compose services
+pnpm dev:docker:reset     # Reset Docker environment
 ```
 
 ## Architecture
@@ -45,7 +50,7 @@ Entry point: `apps/backend/src/server.ts`. Fastify plugins are registered from `
 - `/api/v1/branches/*` and `/api/v1/members` — Branch and member APIs
 - `/api/v1/*` — Session, organization, notifications, departments, employees, positions
 
-Request context setup resolves DB services, WorkOS access, and `SessionSnapshot` before `/api/v1/*` handlers execute.
+Request context setup resolves DB services, WorkOS access, and `SessionSnapshot` before `/api/v1/*` handlers execute. Auth middleware: `requireSession` (validates session) and `requireRoles` (checks RBAC). All state changes are logged via `recordAuditEvent()`. Errors use `AppHttpError` with status codes. Validation errors are translated to Portuguese.
 
 ### Web (Next.js 16)
 
@@ -53,24 +58,24 @@ Server-side API calls use `lib/server-api.ts` (server actions) and `lib/api-prox
 
 ### Auth
 
-Better Auth with Drizzle adapter. Email/password auth. Sessions last 7 days. Cookie prefix: `daton`. Cross-subdomain cookies via `COOKIE_DOMAIN` env var. Custom PBKDF2-SHA256 password hashing (iterations configurable via `BETTER_AUTH_PASSWORD_HASH_ITERATIONS`) with automatic migration from legacy scrypt hashes on sign-in.
+WorkOS-based SSO authentication. Sessions are JOSE-encrypted JWTs stored in a `daton-session` cookie (7-day default lifetime). Cross-subdomain cookies via `COOKIE_DOMAIN` env var. The `packages/auth` module handles WorkOS organization/user bootstrapping, access token verification via JWKS, and session snapshot resolution (user, organization, member, effective roles, branch scope). Key functions: `bootstrapOrganizationWithWorkOs()`, `verifyWorkOsAccessToken()`, `createWorkOsClient()`.
 
 ### Database
 
-PostgreSQL with Drizzle ORM. Two schema files in `packages/db/src/`: `schema.ts` (domain: organizations, branches, departments, employees, positions, member role assignments) and `auth-schema.ts` (Better Auth tables). Migrations in `packages/db/drizzle/`.
+PostgreSQL with Drizzle ORM. Two schema files in `packages/db/src/`: `schema.ts` (domain: organizations, branches, departments, employees, positions, member role assignments) and `auth-schema.ts` (auth tables: user, session, account, verification). Migrations in `packages/db/drizzle/`.
 
 Role-based access control: owner, admin, hr_admin, branch_manager, document_controller, collaborator, viewer. Roles can be global or branch-scoped.
 
 ### Deployment
 
-The current production target is Render. The backend is built from `apps/backend/Dockerfile`, and the web app is built from `apps/web/Dockerfile`.
+The current production target is Render (configured in `render.yaml`). The backend is built from `apps/backend/Dockerfile` (health check: `/health/ready`), and the web app is built from `apps/web/Dockerfile` (standalone output). Both use Node 22 bookworm-slim base images.
 
 ## Environment Setup
 
 Copy `.env.example` to `.env` at the repo root. Key variables:
 - `DATABASE_URL` — Local default: `postgres://postgres:postgres@127.0.0.1:5432/daton`
-- `BETTER_AUTH_SECRET` — Min 32 characters
-- `BETTER_AUTH_URL` — App origin for Better Auth flows
+- `DATON_SESSION_SECRET` — Min 32 characters, used for JOSE session encryption
+- `WORKOS_API_KEY` / `WORKOS_CLIENT_ID` — WorkOS credentials for auth
 - `NEXT_PUBLIC_APP_URL` / `NEXT_PUBLIC_API_URL` — Public URLs for web and API
 - `INTERNAL_API_URL` — Server-side API URL (can differ from public)
 - `ALLOW_FICTIONAL_CNPJ` — Set `true` for dev/test to bypass CNPJ validation

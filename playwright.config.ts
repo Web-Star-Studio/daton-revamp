@@ -14,8 +14,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command:
-        "bash -lc 'cp apps/api/.dev.vars.test apps/api/.dev.vars && docker compose up -d postgres && DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/daton pnpm db:migrate && pnpm --filter @daton/api dev'",
+      command: "bash -lc './scripts/start-e2e-backend.sh'",
       url: "http://127.0.0.1:8787/",
       reuseExistingServer: true,
       timeout: 120_000,

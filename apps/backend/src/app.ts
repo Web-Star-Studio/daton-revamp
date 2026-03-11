@@ -3,19 +3,23 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import * as Sentry from "@sentry/node";
+import { ZodError } from "zod";
 import {
   serializerCompiler,
   validatorCompiler,
 } from "fastify-type-provider-zod";
 
+import "./lib/fastify";
+
 import {
   createApiSentryOptions,
   setRequestSentryContext,
-} from "../../api/src/lib/sentry";
-import type { AppEnvironment } from "../../api/src/types";
+} from "./lib/sentry";
+import { AppHttpError } from "./lib/errors";
 import { parseRuntimeEnv, toApiEnvironment } from "./config/env";
 import healthPlugin from "./plugins/health";
-import legacyApiPlugin from "./plugins/legacy-api";
+import apiPlugin from "./plugins/api";
+import rootPlugin from "./plugins/root";
 
 const expandAllowedOrigins = (values: string[]) => {
   const origins = new Set<string>();
@@ -47,7 +51,7 @@ const expandAllowedOrigins = (values: string[]) => {
 
 export const buildApp = () => {
   const env = parseRuntimeEnv();
-  const apiEnv: AppEnvironment = toApiEnvironment(env);
+  const apiEnv = toApiEnvironment(env);
 
   Sentry.init(createApiSentryOptions(apiEnv));
 
@@ -60,6 +64,7 @@ export const buildApp = () => {
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+  app.decorate("apiEnv", apiEnv);
 
   app.addHook("onRequest", async (request) => {
     setRequestSentryContext({
@@ -77,12 +82,30 @@ export const buildApp = () => {
   });
 
   app.setErrorHandler((error, _request, reply) => {
-    Sentry.captureException(error);
-    app.log.error(error);
-
     if (reply.sent) {
       return;
     }
+
+    if (error instanceof AppHttpError) {
+      if (error.status >= 500) {
+        Sentry.captureException(error);
+      }
+
+      reply.status(error.status).send({
+        message: error.message,
+      });
+      return;
+    }
+
+    if (error instanceof ZodError) {
+      reply.status(400).send({
+        message: error.issues[0]?.message ?? "Dados inválidos.",
+      });
+      return;
+    }
+
+    Sentry.captureException(error);
+    app.log.error(error);
 
     reply.status(500).send({
       message: "Erro interno do servidor.",
@@ -105,9 +128,8 @@ export const buildApp = () => {
   app.register(healthPlugin, {
     databaseUrl: env.DATABASE_URL,
   });
-  app.register(legacyApiPlugin, {
-    apiEnv,
-  });
+  app.register(rootPlugin);
+  app.register(apiPlugin);
 
   return {
     app,

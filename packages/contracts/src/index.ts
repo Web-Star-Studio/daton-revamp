@@ -78,6 +78,7 @@ export const auditActions = [
   "branch.update",
   "branch.archive",
   "branch.assign_manager",
+  "branch.unassign_manager",
   "department.create",
   "department.update",
   "department.archive",

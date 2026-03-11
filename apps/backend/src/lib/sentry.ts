@@ -1,7 +1,7 @@
 import * as Sentry from "@sentry/node";
 
 import type { SessionSnapshot } from "./session";
-import type { AppEnvironment } from "../types";
+import type { AppEnvironment } from "../config/env";
 
 const DEFAULT_LOCAL_SAMPLE_RATE = 1;
 const DEFAULT_REMOTE_SAMPLE_RATE = 0.1;

@@ -1,7 +1,4 @@
-import { zValidator } from "@hono/zod-validator";
 import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
-import { Hono } from "hono";
-import { HTTPException } from "hono/http-exception";
 import { ZodError } from "zod";
 
 import {
@@ -39,10 +36,13 @@ import {
   positions,
 } from "@daton/db";
 
-import { recordAuditEvent } from "../lib/audit";
-import type { AppDbExecutor } from "../lib/session";
-import { requireRoles } from "../middleware/auth";
-import type { AppBindings } from "../types";
+import { requireRoles } from "../../lib/auth";
+import { recordAuditEvent } from "../../lib/audit";
+import { HTTPException } from "../../lib/errors";
+import { createRouteContext, type AppRouteContext } from "../../lib/route-context";
+import type { AppDbExecutor } from "../../lib/session";
+import { parseOrThrow } from "../../lib/validation";
+import type { FastifyPluginAsync } from "fastify";
 
 const normalizeEmpty = (value?: string | null) => {
   const trimmed = value?.trim();
@@ -98,7 +98,7 @@ const normalizeOrganizationProfile = (
 });
 
 const parseCreateDepartmentInput = async (
-  c: any,
+  c: AppRouteContext,
 ): Promise<CreateDepartmentInput> => {
   try {
     return createCreateDepartmentSchema().parse(await c.req.json());
@@ -114,7 +114,7 @@ const parseCreateDepartmentInput = async (
 };
 
 const parseUpdateDepartmentInput = async (
-  c: any,
+  c: AppRouteContext,
 ): Promise<UpdateDepartmentInput> => {
   try {
     return createUpdateDepartmentSchema().parse(await c.req.json());
@@ -130,7 +130,7 @@ const parseUpdateDepartmentInput = async (
 };
 
 const parseCreateEmployeeInput = async (
-  c: any,
+  c: AppRouteContext,
 ): Promise<CreateEmployeeInput> => {
   try {
     return createCreateEmployeeSchema().parse(await c.req.json());
@@ -146,7 +146,7 @@ const parseCreateEmployeeInput = async (
 };
 
 const parseUpdateEmployeeInput = async (
-  c: any,
+  c: AppRouteContext,
 ): Promise<UpdateEmployeeInput> => {
   try {
     return createUpdateEmployeeSchema().parse(await c.req.json());
@@ -162,7 +162,7 @@ const parseUpdateEmployeeInput = async (
 };
 
 const parseCreatePositionInput = async (
-  c: any,
+  c: AppRouteContext,
 ): Promise<CreatePositionInput> => {
   try {
     return createCreatePositionSchema().parse(await c.req.json());
@@ -178,7 +178,7 @@ const parseCreatePositionInput = async (
 };
 
 const parseUpdatePositionInput = async (
-  c: any,
+  c: AppRouteContext,
 ): Promise<UpdatePositionInput> => {
   try {
     return createUpdatePositionSchema().parse(await c.req.json());
@@ -194,7 +194,7 @@ const parseUpdatePositionInput = async (
 };
 
 const parseUpdateOrganizationInput = async (
-  c: any,
+  c: AppRouteContext,
 ): Promise<UpdateOrganizationInput> => {
   try {
     return updateOrganizationSchema.parse(await c.req.json());
@@ -1001,340 +1001,351 @@ function toNotificationSummary(record: {
   };
 }
 
-export const organizationRoutes = new Hono<AppBindings>();
+const organizationPlugin: FastifyPluginAsync = async (fastify) => {
+  fastify.patch(
+    "/organization",
+    {
+      preHandler: requireRoles("owner", "admin"),
+    },
+    async (request, reply) => {
+      const c = createRouteContext(request, reply);
+      const snapshot = c.get("sessionSnapshot");
 
-organizationRoutes.use("/departments*", requireRoles("owner", "admin", "hr_admin"));
-
-organizationRoutes.patch(
-  "/organization",
-  requireRoles("owner", "admin"),
-  async (c) => {
-    const snapshot = c.get("sessionSnapshot");
-
-    if (!snapshot?.organization || !snapshot.member) {
-      throw new HTTPException(401, { message: "Autenticação obrigatória." });
-    }
-
-    const input = await parseUpdateOrganizationInput(c);
-    const db = c.get("db");
-    const organization = snapshot.organization;
-    const member = snapshot.member;
-    const companyProfile = normalizeOrganizationProfile(input.companyProfile);
-
-    await db.transaction(async (tx: AppDbExecutor) => {
-      await tx
-        .update(organizations)
-        .set({
-          openingDate: normalizeEmpty(input.openingDate),
-          taxRegime: normalizeEmpty(input.taxRegime),
-          primaryCnae: normalizeEmpty(input.primaryCnae),
-          stateRegistration: normalizeEmpty(input.stateRegistration),
-          municipalRegistration: normalizeEmpty(input.municipalRegistration),
-          onboardingData: {
-            company_profile: companyProfile,
-          },
-          onboardingStatus: "completed",
-          updatedAt: new Date(),
-        })
-        .where(eq(organizations.id, organization.id));
-
-      await recordAuditEvent(tx, {
-        action: "organization.update",
-        entityType: "organization",
-        entityId: organization.id,
-        organizationId: organization.id,
-        actorUserId: snapshot.user.id,
-        actorMemberId: member.id,
-        metadata: {
-          onboardingStatus: "completed",
-          openingDate: normalizeEmpty(input.openingDate),
-          taxRegime: normalizeEmpty(input.taxRegime),
-          primaryCnae: normalizeEmpty(input.primaryCnae),
-          companyProfile,
-        },
-      });
-    });
-
-    return c.json(await serializeOrganization(db, organization.id));
-  },
-);
-
-organizationRoutes.get("/notifications", async (c) => {
-  const snapshot = c.get("sessionSnapshot");
-
-  if (!snapshot?.organization) {
-    throw new HTTPException(401, { message: "Autenticação obrigatória." });
-  }
-
-  const records = await c
-    .get("db")
-    .select({
-      id: auditEvents.id,
-      action: auditEvents.action,
-      entityType: auditEvents.entityType,
-      entityId: auditEvents.entityId,
-      metadata: auditEvents.metadata,
-      createdAt: auditEvents.createdAt,
-    })
-    .from(auditEvents)
-    .where(eq(auditEvents.organizationId, snapshot.organization.id))
-    .orderBy(desc(auditEvents.createdAt))
-    .limit(12);
-
-  return c.json(records.map(toNotificationSummary));
-});
-
-organizationRoutes.get("/departments", async (c) => {
-  const snapshot = c.get("sessionSnapshot");
-
-  if (!snapshot?.organization) {
-    throw new HTTPException(401, { message: "Autenticação obrigatória." });
-  }
-
-  const db = c.get("db");
-  const records = await db
-    .select({ id: departments.id })
-    .from(departments)
-    .where(eq(departments.organizationId, snapshot.organization.id));
-
-  const serialized = await Promise.all(
-    records.map((record) => serializeDepartment(db, record.id)),
-  );
-
-  return c.json(
-    serialized.sort((left, right) => left.name.localeCompare(right.name, "pt-BR")),
-  );
-});
-
-organizationRoutes.post("/departments", async (c) => {
-  const snapshot = c.get("sessionSnapshot");
-
-  if (!snapshot?.organization || !snapshot.member) {
-    throw new HTTPException(401, { message: "Autenticação obrigatória." });
-  }
-
-  const input = await parseCreateDepartmentInput(c);
-  const db = c.get("db");
-  const organization = snapshot.organization;
-  const member = snapshot.member;
-
-  await ensureDepartmentCodeUnique(db, organization.id, input.code);
-  await assertManagerMember(db, organization.id, input.managerMemberId ?? null);
-  await assertEmployee(
-    db,
-    organization.id,
-    input.managerEmployeeId ?? null,
-    "O gestor do departamento precisa ser um colaborador válido da organização.",
-  );
-  await assertDepartmentHierarchy(
-    db,
-    organization.id,
-    null,
-    input.parentDepartmentId ?? null,
-  );
-  const availableBranches = await ensureDepartmentBranches(
-    db,
-    organization.id,
-    input.branchIds,
-  );
-
-  const result = await db.transaction(async (tx: AppDbExecutor) => {
-    const [department] = await tx
-      .insert(departments)
-      .values({
-        organizationId: organization.id,
-        name: input.name,
-        code: input.code,
-        description: normalizeEmpty(input.description),
-        parentDepartmentId: input.parentDepartmentId ?? null,
-        managerEmployeeId: input.managerEmployeeId ?? null,
-        managerMemberId: input.managerMemberId ?? null,
-        budget: normalizeNumber(input.budget),
-        costCenter: normalizeEmpty(input.costCenter),
-        notes: normalizeEmpty(input.notes),
-      })
-      .returning({ id: departments.id });
-
-    if (!department) {
-      throw new HTTPException(500, {
-        message: "Não foi possível criar o departamento.",
-      });
-    }
-
-    if (availableBranches.length > 0) {
-      await tx.insert(departmentBranchAssignments).values(
-        availableBranches.map((branch) => ({
-          organizationId: organization.id,
-          departmentId: department.id,
-          branchId: branch.id,
-        })),
-      );
-    }
-
-    await recordAuditEvent(tx, {
-      action: "department.create",
-      entityType: "department",
-      entityId: department.id,
-      organizationId: organization.id,
-      actorUserId: snapshot.user.id,
-      actorMemberId: member.id,
-      metadata: {
-        code: input.code,
-        name: input.name,
-        parentDepartmentId: input.parentDepartmentId ?? null,
-        managerEmployeeId: input.managerEmployeeId ?? null,
-        managerMemberId: input.managerMemberId ?? null,
-      },
-    });
-
-    return department.id;
-  });
-
-  return c.json(await serializeDepartment(db, result), 201);
-});
-
-organizationRoutes.patch(
-  "/departments/:departmentId",
-  zValidator("param", departmentIdSchema),
-  async (c) => {
-    const snapshot = c.get("sessionSnapshot");
-
-    if (!snapshot?.organization || !snapshot.member) {
-      throw new HTTPException(401, { message: "Autenticação obrigatória." });
-    }
-
-    const { departmentId } = c.req.valid("param");
-    const input = await parseUpdateDepartmentInput(c);
-    const db = c.get("db");
-    const organization = snapshot.organization;
-    const member = snapshot.member;
-
-    const [existingDepartment] = await db
-      .select({ id: departments.id, status: departments.status })
-      .from(departments)
-      .where(
-        and(
-          eq(departments.id, departmentId),
-          eq(departments.organizationId, organization.id),
-        ),
-      )
-      .limit(1);
-
-    if (!existingDepartment) {
-      throw new HTTPException(404, {
-        message: "Departamento não encontrado.",
-      });
-    }
-
-    await ensureDepartmentCodeUnique(db, organization.id, input.code, departmentId);
-    await assertManagerMember(db, organization.id, input.managerMemberId ?? null);
-    await assertEmployee(
-      db,
-      organization.id,
-      input.managerEmployeeId ?? null,
-      "O gestor do departamento precisa ser um colaborador válido da organização.",
-    );
-    await assertDepartmentHierarchy(
-      db,
-      organization.id,
-      departmentId,
-      input.parentDepartmentId ?? null,
-    );
-    const availableBranches = await ensureDepartmentBranches(
-      db,
-      organization.id,
-      input.branchIds,
-    );
-
-    await db.transaction(async (tx: AppDbExecutor) => {
-      await tx
-        .update(departments)
-        .set({
-          name: input.name,
-          code: input.code,
-          description: normalizeEmpty(input.description),
-          parentDepartmentId: input.parentDepartmentId ?? null,
-          managerEmployeeId: input.managerEmployeeId ?? null,
-          managerMemberId: input.managerMemberId ?? null,
-          budget: normalizeNumber(input.budget),
-          costCenter: normalizeEmpty(input.costCenter),
-          notes: normalizeEmpty(input.notes),
-          status: input.status ?? existingDepartment.status,
-          updatedAt: new Date(),
-        })
-        .where(eq(departments.id, departmentId));
-
-      await tx
-        .delete(departmentBranchAssignments)
-        .where(eq(departmentBranchAssignments.departmentId, departmentId));
-
-      if (availableBranches.length > 0) {
-        await tx.insert(departmentBranchAssignments).values(
-          availableBranches.map((branch) => ({
-            organizationId: organization.id,
-            departmentId,
-            branchId: branch.id,
-          })),
-        );
+      if (!snapshot?.organization || !snapshot.member) {
+        throw new HTTPException(401, { message: "Autenticação obrigatória." });
       }
 
-      await recordAuditEvent(tx, {
-        action: input.status === "archived" ? "department.archive" : "department.update",
-        entityType: "department",
-        entityId: departmentId,
-        organizationId: organization.id,
-        actorUserId: snapshot.user.id,
-        actorMemberId: member.id,
-        metadata: {
-          code: input.code,
-          name: input.name,
-          parentDepartmentId: input.parentDepartmentId ?? null,
-          managerEmployeeId: input.managerEmployeeId ?? null,
-          managerMemberId: input.managerMemberId ?? null,
-          status: input.status ?? existingDepartment.status,
-        },
+      const input = await parseUpdateOrganizationInput(c);
+      const db = c.get("db");
+      const organization = snapshot.organization;
+      const member = snapshot.member;
+      const companyProfile = normalizeOrganizationProfile(input.companyProfile);
+
+      await db.transaction(async (tx: AppDbExecutor) => {
+        await tx
+          .update(organizations)
+          .set({
+            openingDate: normalizeEmpty(input.openingDate),
+            taxRegime: normalizeEmpty(input.taxRegime),
+            primaryCnae: normalizeEmpty(input.primaryCnae),
+            stateRegistration: normalizeEmpty(input.stateRegistration),
+            municipalRegistration: normalizeEmpty(input.municipalRegistration),
+            onboardingData: {
+              company_profile: companyProfile,
+            },
+            onboardingStatus: "completed",
+            updatedAt: new Date(),
+          })
+          .where(eq(organizations.id, organization.id));
+
+        await recordAuditEvent(tx, {
+          action: "organization.update",
+          entityType: "organization",
+          entityId: organization.id,
+          organizationId: organization.id,
+          actorUserId: snapshot.user.id,
+          actorMemberId: member.id,
+          metadata: {
+            onboardingStatus: "completed",
+            openingDate: normalizeEmpty(input.openingDate),
+            taxRegime: normalizeEmpty(input.taxRegime),
+            primaryCnae: normalizeEmpty(input.primaryCnae),
+            companyProfile,
+          },
+        });
       });
-    });
 
-    return c.json(await serializeDepartment(db, departmentId));
-  },
-);
-
-organizationRoutes.get("/employees", async (c) => {
-  const snapshot = c.get("sessionSnapshot");
-
-  if (!snapshot?.organization) {
-    throw new HTTPException(401, { message: "Autenticação obrigatória." });
-  }
-
-  const db = c.get("db");
-  const records = await db
-    .select({ id: employees.id })
-    .from(employees)
-    .where(eq(employees.organizationId, snapshot.organization.id));
-
-  const serialized = await Promise.all(
-    records.map((record) => serializeEmployee(db, record.id)),
+      return c.json(await serializeOrganization(db, organization.id));
+    },
   );
 
-  return c.json(
-    serialized.sort((left, right) =>
-      left.fullName.localeCompare(right.fullName, "pt-BR"),
-    ),
-  );
-});
-
-organizationRoutes.get(
-  "/employees/:employeeId",
-  zValidator("param", employeeIdSchema),
-  async (c) => {
+  fastify.get("/notifications", async (request, reply) => {
+    const c = createRouteContext(request, reply);
     const snapshot = c.get("sessionSnapshot");
 
     if (!snapshot?.organization) {
       throw new HTTPException(401, { message: "Autenticação obrigatória." });
     }
 
-    const { employeeId } = c.req.valid("param");
+    const records = await c
+      .get("db")
+      .select({
+        id: auditEvents.id,
+        action: auditEvents.action,
+        entityType: auditEvents.entityType,
+        entityId: auditEvents.entityId,
+        metadata: auditEvents.metadata,
+        createdAt: auditEvents.createdAt,
+      })
+      .from(auditEvents)
+      .where(eq(auditEvents.organizationId, snapshot.organization.id))
+      .orderBy(desc(auditEvents.createdAt))
+      .limit(12);
+
+    return c.json(records.map(toNotificationSummary));
+  });
+
+  fastify.get(
+    "/departments",
+    {
+      preHandler: requireRoles("owner", "admin", "hr_admin"),
+    },
+    async (request, reply) => {
+      const c = createRouteContext(request, reply);
+      const snapshot = c.get("sessionSnapshot");
+
+      if (!snapshot?.organization) {
+        throw new HTTPException(401, { message: "Autenticação obrigatória." });
+      }
+
+      const db = c.get("db");
+      const records = await db
+        .select({ id: departments.id })
+        .from(departments)
+        .where(eq(departments.organizationId, snapshot.organization.id));
+
+      const serialized = await Promise.all(
+        records.map((record) => serializeDepartment(db, record.id)),
+      );
+
+      return c.json(
+        serialized.sort((left, right) => left.name.localeCompare(right.name, "pt-BR")),
+      );
+    },
+  );
+
+  fastify.post(
+    "/departments",
+    {
+      preHandler: requireRoles("owner", "admin", "hr_admin"),
+    },
+    async (request, reply) => {
+      const c = createRouteContext(request, reply);
+      const snapshot = c.get("sessionSnapshot");
+
+      if (!snapshot?.organization || !snapshot.member) {
+        throw new HTTPException(401, { message: "Autenticação obrigatória." });
+      }
+
+      const input = await parseCreateDepartmentInput(c);
+      const db = c.get("db");
+      const organization = snapshot.organization;
+      const member = snapshot.member;
+
+      await ensureDepartmentCodeUnique(db, organization.id, input.code);
+      await assertManagerMember(db, organization.id, input.managerMemberId ?? null);
+      await assertEmployee(
+        db,
+        organization.id,
+        input.managerEmployeeId ?? null,
+        "O gestor do departamento precisa ser um colaborador válido da organização.",
+      );
+      await assertDepartmentHierarchy(
+        db,
+        organization.id,
+        null,
+        input.parentDepartmentId ?? null,
+      );
+      const availableBranches = await ensureDepartmentBranches(db, organization.id, input.branchIds);
+
+      const result = await db.transaction(async (tx: AppDbExecutor) => {
+        const [department] = await tx
+          .insert(departments)
+          .values({
+            organizationId: organization.id,
+            name: input.name,
+            code: input.code,
+            description: normalizeEmpty(input.description),
+            parentDepartmentId: input.parentDepartmentId ?? null,
+            managerEmployeeId: input.managerEmployeeId ?? null,
+            managerMemberId: input.managerMemberId ?? null,
+            budget: normalizeNumber(input.budget),
+            costCenter: normalizeEmpty(input.costCenter),
+            notes: normalizeEmpty(input.notes),
+          })
+          .returning({ id: departments.id });
+
+        if (!department) {
+          throw new HTTPException(500, {
+            message: "Não foi possível criar o departamento.",
+          });
+        }
+
+        if (availableBranches.length > 0) {
+          await tx.insert(departmentBranchAssignments).values(
+            availableBranches.map((branch) => ({
+              organizationId: organization.id,
+              departmentId: department.id,
+              branchId: branch.id,
+            })),
+          );
+        }
+
+        await recordAuditEvent(tx, {
+          action: "department.create",
+          entityType: "department",
+          entityId: department.id,
+          organizationId: organization.id,
+          actorUserId: snapshot.user.id,
+          actorMemberId: member.id,
+          metadata: {
+            code: input.code,
+            name: input.name,
+            parentDepartmentId: input.parentDepartmentId ?? null,
+            managerEmployeeId: input.managerEmployeeId ?? null,
+            managerMemberId: input.managerMemberId ?? null,
+          },
+        });
+
+        return department.id;
+      });
+
+      return c.json(await serializeDepartment(db, result), 201);
+    },
+  );
+
+  fastify.patch(
+    "/departments/:departmentId",
+    {
+      preHandler: requireRoles("owner", "admin", "hr_admin"),
+    },
+    async (request, reply) => {
+      const c = createRouteContext(request, reply, {
+        param: parseOrThrow(departmentIdSchema, request.params),
+      });
+      const snapshot = c.get("sessionSnapshot");
+
+      if (!snapshot?.organization || !snapshot.member) {
+        throw new HTTPException(401, { message: "Autenticação obrigatória." });
+      }
+
+      const { departmentId } = c.req.valid("param") as { departmentId: string };
+      const input = await parseUpdateDepartmentInput(c);
+      const db = c.get("db");
+      const organization = snapshot.organization;
+      const member = snapshot.member;
+
+      const [existingDepartment] = await db
+        .select({ id: departments.id, status: departments.status })
+        .from(departments)
+        .where(
+          and(
+            eq(departments.id, departmentId),
+            eq(departments.organizationId, organization.id),
+          ),
+        )
+        .limit(1);
+
+      if (!existingDepartment) {
+        throw new HTTPException(404, {
+          message: "Departamento não encontrado.",
+        });
+      }
+
+      await ensureDepartmentCodeUnique(db, organization.id, input.code, departmentId);
+      await assertManagerMember(db, organization.id, input.managerMemberId ?? null);
+      await assertEmployee(
+        db,
+        organization.id,
+        input.managerEmployeeId ?? null,
+        "O gestor do departamento precisa ser um colaborador válido da organização.",
+      );
+      await assertDepartmentHierarchy(
+        db,
+        organization.id,
+        departmentId,
+        input.parentDepartmentId ?? null,
+      );
+      const availableBranches = await ensureDepartmentBranches(db, organization.id, input.branchIds);
+
+      await db.transaction(async (tx: AppDbExecutor) => {
+        await tx
+          .update(departments)
+          .set({
+            name: input.name,
+            code: input.code,
+            description: normalizeEmpty(input.description),
+            parentDepartmentId: input.parentDepartmentId ?? null,
+            managerEmployeeId: input.managerEmployeeId ?? null,
+            managerMemberId: input.managerMemberId ?? null,
+            budget: normalizeNumber(input.budget),
+            costCenter: normalizeEmpty(input.costCenter),
+            notes: normalizeEmpty(input.notes),
+            status: input.status ?? existingDepartment.status,
+            updatedAt: new Date(),
+          })
+          .where(eq(departments.id, departmentId));
+
+        await tx
+          .delete(departmentBranchAssignments)
+          .where(eq(departmentBranchAssignments.departmentId, departmentId));
+
+        if (availableBranches.length > 0) {
+          await tx.insert(departmentBranchAssignments).values(
+            availableBranches.map((branch) => ({
+              organizationId: organization.id,
+              departmentId,
+              branchId: branch.id,
+            })),
+          );
+        }
+
+        await recordAuditEvent(tx, {
+          action: input.status === "archived" ? "department.archive" : "department.update",
+          entityType: "department",
+          entityId: departmentId,
+          organizationId: organization.id,
+          actorUserId: snapshot.user.id,
+          actorMemberId: member.id,
+          metadata: {
+            code: input.code,
+            name: input.name,
+            parentDepartmentId: input.parentDepartmentId ?? null,
+            managerEmployeeId: input.managerEmployeeId ?? null,
+            managerMemberId: input.managerMemberId ?? null,
+            status: input.status ?? existingDepartment.status,
+          },
+        });
+      });
+
+      return c.json(await serializeDepartment(db, departmentId));
+    },
+  );
+
+  fastify.get("/employees", async (request, reply) => {
+    const c = createRouteContext(request, reply);
+    const snapshot = c.get("sessionSnapshot");
+
+    if (!snapshot?.organization) {
+      throw new HTTPException(401, { message: "Autenticação obrigatória." });
+    }
+
+    const db = c.get("db");
+    const records = await db
+      .select({ id: employees.id })
+      .from(employees)
+      .where(eq(employees.organizationId, snapshot.organization.id));
+
+    const serialized = await Promise.all(
+      records.map((record) => serializeEmployee(db, record.id)),
+    );
+
+    return c.json(
+      serialized.sort((left, right) => left.fullName.localeCompare(right.fullName, "pt-BR")),
+    );
+  });
+
+  fastify.get("/employees/:employeeId", async (request, reply) => {
+    const c = createRouteContext(request, reply, {
+      param: parseOrThrow(employeeIdSchema, request.params),
+    });
+    const snapshot = c.get("sessionSnapshot");
+
+    if (!snapshot?.organization) {
+      throw new HTTPException(401, { message: "Autenticação obrigatória." });
+    }
+
+    const { employeeId } = c.req.valid("param") as { employeeId: string };
     const db = c.get("db");
     const [employee] = await db
       .select({ id: employees.id })
@@ -1352,248 +1363,249 @@ organizationRoutes.get(
     }
 
     return c.json(await serializeEmployee(db, employeeId));
-  },
-);
+  });
 
-organizationRoutes.post(
-  "/employees",
-  requireRoles("owner", "admin", "hr_admin"),
-  async (c) => {
-    const snapshot = c.get("sessionSnapshot");
+  fastify.post(
+    "/employees",
+    {
+      preHandler: requireRoles("owner", "admin", "hr_admin"),
+    },
+    async (request, reply) => {
+      const c = createRouteContext(request, reply);
+      const snapshot = c.get("sessionSnapshot");
 
-    if (!snapshot?.organization) {
-      throw new HTTPException(401, { message: "Autenticação obrigatória." });
-    }
+      if (!snapshot?.organization) {
+        throw new HTTPException(401, { message: "Autenticação obrigatória." });
+      }
 
-    const input = await parseCreateEmployeeInput(c);
-    const db = c.get("db");
-    const organizationId = snapshot.organization.id;
+      const input = await parseCreateEmployeeInput(c);
+      const db = c.get("db");
+      const organizationId = snapshot.organization.id;
 
-    await ensureEmployeeCodeUnique(
-      db,
-      organizationId,
-      normalizeEmpty(input.employeeCode),
-    );
-    await assertBranch(
-      db,
-      organizationId,
-      input.branchId ?? null,
-      "A unidade vinculada não existe nesta organização.",
-    );
-    await assertEmployee(
-      db,
-      organizationId,
-      input.managerId ?? null,
-      "O gestor informado não existe nesta organização.",
-    );
-    await assertDepartment(
-      db,
-      organizationId,
-      input.departmentId ?? null,
-      "O departamento informado não existe nesta organização.",
-    );
-    const position = await assertPosition(
-      db,
-      organizationId,
-      input.positionId ?? null,
-      "O cargo informado não existe nesta organização.",
-    );
-
-    if (
-      input.departmentId &&
-      position?.departmentId &&
-      position.departmentId !== input.departmentId
-    ) {
-      throw new HTTPException(400, {
-        message: "O cargo informado pertence a outro departamento.",
-      });
-    }
-
-    const resolvedDepartmentId = input.departmentId ?? position?.departmentId ?? null;
-
-    const [employee] = await db
-      .insert(employees)
-      .values({
+      await ensureEmployeeCodeUnique(db, organizationId, normalizeEmpty(input.employeeCode));
+      await assertBranch(
+        db,
         organizationId,
-        employeeCode: normalizeEmpty(input.employeeCode),
-        cpf: normalizeEmpty(input.cpf),
-        fullName: input.fullName.trim(),
-        email: normalizeEmpty(input.email),
-        phone: normalizeEmpty(input.phone),
-        departmentId: resolvedDepartmentId,
-        positionId: input.positionId ?? null,
-        hireDate: input.hireDate,
-        birthDate: normalizeEmpty(input.birthDate),
-        gender: normalizeEmpty(input.gender),
-        ethnicity: normalizeEmpty(input.ethnicity),
-        educationLevel: normalizeEmpty(input.educationLevel),
-        salary: normalizeNumber(input.salary),
-        employmentType: input.employmentType.trim(),
-        status: input.status.trim(),
-        managerId: input.managerId ?? null,
-        location: normalizeEmpty(input.location),
-        branchId: input.branchId ?? null,
-        terminationDate: normalizeEmpty(input.terminationDate),
-        notes: normalizeEmpty(input.notes),
-      })
-      .returning({ id: employees.id });
+        input.branchId ?? null,
+        "A unidade vinculada não existe nesta organização.",
+      );
+      await assertEmployee(
+        db,
+        organizationId,
+        input.managerId ?? null,
+        "O gestor informado não existe nesta organização.",
+      );
+      await assertDepartment(
+        db,
+        organizationId,
+        input.departmentId ?? null,
+        "O departamento informado não existe nesta organização.",
+      );
+      const position = await assertPosition(
+        db,
+        organizationId,
+        input.positionId ?? null,
+        "O cargo informado não existe nesta organização.",
+      );
 
-    if (!employee) {
-      throw new HTTPException(500, {
-        message: "Não foi possível criar o colaborador.",
+      if (
+        input.departmentId &&
+        position?.departmentId &&
+        position.departmentId !== input.departmentId
+      ) {
+        throw new HTTPException(400, {
+          message: "O cargo informado pertence a outro departamento.",
+        });
+      }
+
+      const resolvedDepartmentId = input.departmentId ?? position?.departmentId ?? null;
+
+      const [employee] = await db
+        .insert(employees)
+        .values({
+          organizationId,
+          employeeCode: normalizeEmpty(input.employeeCode),
+          cpf: normalizeEmpty(input.cpf),
+          fullName: input.fullName.trim(),
+          email: normalizeEmpty(input.email),
+          phone: normalizeEmpty(input.phone),
+          departmentId: resolvedDepartmentId,
+          positionId: input.positionId ?? null,
+          hireDate: input.hireDate,
+          birthDate: normalizeEmpty(input.birthDate),
+          gender: normalizeEmpty(input.gender),
+          ethnicity: normalizeEmpty(input.ethnicity),
+          educationLevel: normalizeEmpty(input.educationLevel),
+          salary: normalizeNumber(input.salary),
+          employmentType: input.employmentType.trim(),
+          status: input.status.trim(),
+          managerId: input.managerId ?? null,
+          location: normalizeEmpty(input.location),
+          branchId: input.branchId ?? null,
+          terminationDate: normalizeEmpty(input.terminationDate),
+          notes: normalizeEmpty(input.notes),
+        })
+        .returning({ id: employees.id });
+
+      if (!employee) {
+        throw new HTTPException(500, {
+          message: "Não foi possível criar o colaborador.",
+        });
+      }
+
+      return c.json(await serializeEmployee(db, employee.id), 201);
+    },
+  );
+
+  fastify.patch(
+    "/employees/:employeeId",
+    {
+      preHandler: requireRoles("owner", "admin", "hr_admin"),
+    },
+    async (request, reply) => {
+      const c = createRouteContext(request, reply, {
+        param: parseOrThrow(employeeIdSchema, request.params),
       });
-    }
+      const snapshot = c.get("sessionSnapshot");
 
-    return c.json(await serializeEmployee(db, employee.id), 201);
-  },
-);
+      if (!snapshot?.organization) {
+        throw new HTTPException(401, { message: "Autenticação obrigatória." });
+      }
 
-organizationRoutes.patch(
-  "/employees/:employeeId",
-  requireRoles("owner", "admin", "hr_admin"),
-  zValidator("param", employeeIdSchema),
-  async (c) => {
+      const { employeeId } = c.req.valid("param") as { employeeId: string };
+      const input = await parseUpdateEmployeeInput(c);
+      const db = c.get("db");
+      const organizationId = snapshot.organization.id;
+
+      const [existingEmployee] = await db
+        .select({ id: employees.id })
+        .from(employees)
+        .where(
+          and(
+            eq(employees.id, employeeId),
+            eq(employees.organizationId, organizationId),
+          ),
+        )
+        .limit(1);
+
+      if (!existingEmployee) {
+        throw new HTTPException(404, { message: "Colaborador não encontrado." });
+      }
+
+      if (input.managerId && input.managerId === employeeId) {
+        throw new HTTPException(400, {
+          message: "Um colaborador não pode ser o próprio gestor.",
+        });
+      }
+
+      await ensureEmployeeCodeUnique(
+        db,
+        organizationId,
+        normalizeEmpty(input.employeeCode),
+        employeeId,
+      );
+      await assertBranch(
+        db,
+        organizationId,
+        input.branchId ?? null,
+        "A unidade vinculada não existe nesta organização.",
+      );
+      await assertEmployee(
+        db,
+        organizationId,
+        input.managerId ?? null,
+        "O gestor informado não existe nesta organização.",
+      );
+      await assertDepartment(
+        db,
+        organizationId,
+        input.departmentId ?? null,
+        "O departamento informado não existe nesta organização.",
+      );
+      const position = await assertPosition(
+        db,
+        organizationId,
+        input.positionId ?? null,
+        "O cargo informado não existe nesta organização.",
+      );
+
+      if (
+        input.departmentId &&
+        position?.departmentId &&
+        position.departmentId !== input.departmentId
+      ) {
+        throw new HTTPException(400, {
+          message: "O cargo informado pertence a outro departamento.",
+        });
+      }
+
+      const resolvedDepartmentId = input.departmentId ?? position?.departmentId ?? null;
+
+      await db
+        .update(employees)
+        .set({
+          employeeCode: normalizeEmpty(input.employeeCode),
+          cpf: normalizeEmpty(input.cpf),
+          fullName: input.fullName.trim(),
+          email: normalizeEmpty(input.email),
+          phone: normalizeEmpty(input.phone),
+          departmentId: resolvedDepartmentId,
+          positionId: input.positionId ?? null,
+          hireDate: input.hireDate,
+          birthDate: normalizeEmpty(input.birthDate),
+          gender: normalizeEmpty(input.gender),
+          ethnicity: normalizeEmpty(input.ethnicity),
+          educationLevel: normalizeEmpty(input.educationLevel),
+          salary: normalizeNumber(input.salary),
+          employmentType: input.employmentType.trim(),
+          status: input.status.trim(),
+          managerId: input.managerId ?? null,
+          location: normalizeEmpty(input.location),
+          branchId: input.branchId ?? null,
+          terminationDate: normalizeEmpty(input.terminationDate),
+          notes: normalizeEmpty(input.notes),
+          updatedAt: new Date(),
+        })
+        .where(eq(employees.id, employeeId));
+
+      return c.json(await serializeEmployee(db, employeeId));
+    },
+  );
+
+  fastify.get("/positions", async (request, reply) => {
+    const c = createRouteContext(request, reply);
     const snapshot = c.get("sessionSnapshot");
 
     if (!snapshot?.organization) {
       throw new HTTPException(401, { message: "Autenticação obrigatória." });
     }
 
-    const { employeeId } = c.req.valid("param");
-    const input = await parseUpdateEmployeeInput(c);
     const db = c.get("db");
-    const organizationId = snapshot.organization.id;
+    const records = await db
+      .select({ id: positions.id })
+      .from(positions)
+      .where(eq(positions.organizationId, snapshot.organization.id));
 
-    const [existingEmployee] = await db
-      .select({ id: employees.id })
-      .from(employees)
-      .where(
-        and(
-          eq(employees.id, employeeId),
-          eq(employees.organizationId, organizationId),
-        ),
-      )
-      .limit(1);
-
-    if (!existingEmployee) {
-      throw new HTTPException(404, { message: "Colaborador não encontrado." });
-    }
-
-    if (input.managerId && input.managerId === employeeId) {
-      throw new HTTPException(400, {
-        message: "Um colaborador não pode ser o próprio gestor.",
-      });
-    }
-
-    await ensureEmployeeCodeUnique(
-      db,
-      organizationId,
-      normalizeEmpty(input.employeeCode),
-      employeeId,
-    );
-    await assertBranch(
-      db,
-      organizationId,
-      input.branchId ?? null,
-      "A unidade vinculada não existe nesta organização.",
-    );
-    await assertEmployee(
-      db,
-      organizationId,
-      input.managerId ?? null,
-      "O gestor informado não existe nesta organização.",
-    );
-    await assertDepartment(
-      db,
-      organizationId,
-      input.departmentId ?? null,
-      "O departamento informado não existe nesta organização.",
-    );
-    const position = await assertPosition(
-      db,
-      organizationId,
-      input.positionId ?? null,
-      "O cargo informado não existe nesta organização.",
+    const serialized = await Promise.all(
+      records.map((record) => serializePosition(db, record.id)),
     );
 
-    if (
-      input.departmentId &&
-      position?.departmentId &&
-      position.departmentId !== input.departmentId
-    ) {
-      throw new HTTPException(400, {
-        message: "O cargo informado pertence a outro departamento.",
-      });
-    }
+    return c.json(
+      serialized.sort((left, right) => left.title.localeCompare(right.title, "pt-BR")),
+    );
+  });
 
-    const resolvedDepartmentId = input.departmentId ?? position?.departmentId ?? null;
-
-    await db
-      .update(employees)
-      .set({
-        employeeCode: normalizeEmpty(input.employeeCode),
-        cpf: normalizeEmpty(input.cpf),
-        fullName: input.fullName.trim(),
-        email: normalizeEmpty(input.email),
-        phone: normalizeEmpty(input.phone),
-        departmentId: resolvedDepartmentId,
-        positionId: input.positionId ?? null,
-        hireDate: input.hireDate,
-        birthDate: normalizeEmpty(input.birthDate),
-        gender: normalizeEmpty(input.gender),
-        ethnicity: normalizeEmpty(input.ethnicity),
-        educationLevel: normalizeEmpty(input.educationLevel),
-        salary: normalizeNumber(input.salary),
-        employmentType: input.employmentType.trim(),
-        status: input.status.trim(),
-        managerId: input.managerId ?? null,
-        location: normalizeEmpty(input.location),
-        branchId: input.branchId ?? null,
-        terminationDate: normalizeEmpty(input.terminationDate),
-        notes: normalizeEmpty(input.notes),
-        updatedAt: new Date(),
-      })
-      .where(eq(employees.id, employeeId));
-
-    return c.json(await serializeEmployee(db, employeeId));
-  },
-);
-
-organizationRoutes.get("/positions", async (c) => {
-  const snapshot = c.get("sessionSnapshot");
-
-  if (!snapshot?.organization) {
-    throw new HTTPException(401, { message: "Autenticação obrigatória." });
-  }
-
-  const db = c.get("db");
-  const records = await db
-    .select({ id: positions.id })
-    .from(positions)
-    .where(eq(positions.organizationId, snapshot.organization.id));
-
-  const serialized = await Promise.all(
-    records.map((record) => serializePosition(db, record.id)),
-  );
-
-  return c.json(
-    serialized.sort((left, right) =>
-      left.title.localeCompare(right.title, "pt-BR"),
-    ),
-  );
-});
-
-organizationRoutes.get(
-  "/positions/:positionId",
-  zValidator("param", positionIdSchema),
-  async (c) => {
+  fastify.get("/positions/:positionId", async (request, reply) => {
+    const c = createRouteContext(request, reply, {
+      param: parseOrThrow(positionIdSchema, request.params),
+    });
     const snapshot = c.get("sessionSnapshot");
 
     if (!snapshot?.organization) {
       throw new HTTPException(401, { message: "Autenticação obrigatória." });
     }
 
-    const { positionId } = c.req.valid("param");
+    const { positionId } = c.req.valid("param") as { positionId: string };
     const db = c.get("db");
     const [position] = await db
       .select({ id: positions.id })
@@ -1611,132 +1623,141 @@ organizationRoutes.get(
     }
 
     return c.json(await serializePosition(db, positionId));
-  },
-);
+  });
 
-organizationRoutes.post(
-  "/positions",
-  requireRoles("owner", "admin", "hr_admin"),
-  async (c) => {
-    const snapshot = c.get("sessionSnapshot");
+  fastify.post(
+    "/positions",
+    {
+      preHandler: requireRoles("owner", "admin", "hr_admin"),
+    },
+    async (request, reply) => {
+      const c = createRouteContext(request, reply);
+      const snapshot = c.get("sessionSnapshot");
 
-    if (!snapshot?.organization) {
-      throw new HTTPException(401, { message: "Autenticação obrigatória." });
-    }
+      if (!snapshot?.organization) {
+        throw new HTTPException(401, { message: "Autenticação obrigatória." });
+      }
 
-    const input = await parseCreatePositionInput(c);
-    const db = c.get("db");
-    const organizationId = snapshot.organization.id;
+      const input = await parseCreatePositionInput(c);
+      const db = c.get("db");
+      const organizationId = snapshot.organization.id;
 
-    await assertDepartment(
-      db,
-      organizationId,
-      input.departmentId ?? null,
-      "O departamento informado não existe nesta organização.",
-    );
-    await assertPositionHierarchy(
-      db,
-      organizationId,
-      null,
-      input.reportsToPositionId ?? null,
-    );
-
-    const [position] = await db
-      .insert(positions)
-      .values({
+      await assertDepartment(
+        db,
         organizationId,
-        departmentId: input.departmentId ?? null,
-        title: input.title.trim(),
-        description: normalizeEmpty(input.description),
-        level: normalizeEmpty(input.level),
-        salaryRangeMin: normalizeNumber(input.salaryRangeMin),
-        salaryRangeMax: normalizeNumber(input.salaryRangeMax),
-        requirements: normalizeStringArray(input.requirements),
-        responsibilities: normalizeStringArray(input.responsibilities),
-        reportsToPositionId: input.reportsToPositionId ?? null,
-        requiredEducationLevel: normalizeEmpty(input.requiredEducationLevel),
-        requiredExperienceYears:
-          typeof input.requiredExperienceYears === "number"
-            ? input.requiredExperienceYears
-            : null,
-      })
-      .returning({ id: positions.id });
+        input.departmentId ?? null,
+        "O departamento informado não existe nesta organização.",
+      );
+      await assertPositionHierarchy(
+        db,
+        organizationId,
+        null,
+        input.reportsToPositionId ?? null,
+      );
 
-    if (!position) {
-      throw new HTTPException(500, {
-        message: "Não foi possível criar o cargo.",
+      const [position] = await db
+        .insert(positions)
+        .values({
+          organizationId,
+          departmentId: input.departmentId ?? null,
+          title: input.title.trim(),
+          description: normalizeEmpty(input.description),
+          level: normalizeEmpty(input.level),
+          salaryRangeMin: normalizeNumber(input.salaryRangeMin),
+          salaryRangeMax: normalizeNumber(input.salaryRangeMax),
+          requirements: normalizeStringArray(input.requirements),
+          responsibilities: normalizeStringArray(input.responsibilities),
+          reportsToPositionId: input.reportsToPositionId ?? null,
+          requiredEducationLevel: normalizeEmpty(input.requiredEducationLevel),
+          requiredExperienceYears:
+            typeof input.requiredExperienceYears === "number"
+              ? input.requiredExperienceYears
+              : null,
+        })
+        .returning({ id: positions.id });
+
+      if (!position) {
+        throw new HTTPException(500, {
+          message: "Não foi possível criar o cargo.",
+        });
+      }
+
+      return c.json(await serializePosition(db, position.id), 201);
+    },
+  );
+
+  fastify.patch(
+    "/positions/:positionId",
+    {
+      preHandler: requireRoles("owner", "admin", "hr_admin"),
+    },
+    async (request, reply) => {
+      const c = createRouteContext(request, reply, {
+        param: parseOrThrow(positionIdSchema, request.params),
       });
-    }
+      const snapshot = c.get("sessionSnapshot");
 
-    return c.json(await serializePosition(db, position.id), 201);
-  },
-);
+      if (!snapshot?.organization) {
+        throw new HTTPException(401, { message: "Autenticação obrigatória." });
+      }
 
-organizationRoutes.patch(
-  "/positions/:positionId",
-  requireRoles("owner", "admin", "hr_admin"),
-  zValidator("param", positionIdSchema),
-  async (c) => {
-    const snapshot = c.get("sessionSnapshot");
+      const { positionId } = c.req.valid("param") as { positionId: string };
+      const input = await parseUpdatePositionInput(c);
+      const db = c.get("db");
+      const organizationId = snapshot.organization.id;
 
-    if (!snapshot?.organization) {
-      throw new HTTPException(401, { message: "Autenticação obrigatória." });
-    }
+      const [existingPosition] = await db
+        .select({ id: positions.id })
+        .from(positions)
+        .where(
+          and(
+            eq(positions.id, positionId),
+            eq(positions.organizationId, organizationId),
+          ),
+        )
+        .limit(1);
 
-    const { positionId } = c.req.valid("param");
-    const input = await parseUpdatePositionInput(c);
-    const db = c.get("db");
-    const organizationId = snapshot.organization.id;
+      if (!existingPosition) {
+        throw new HTTPException(404, { message: "Cargo não encontrado." });
+      }
 
-    const [existingPosition] = await db
-      .select({ id: positions.id })
-      .from(positions)
-      .where(
-        and(
-          eq(positions.id, positionId),
-          eq(positions.organizationId, organizationId),
-        ),
-      )
-      .limit(1);
+      await assertDepartment(
+        db,
+        organizationId,
+        input.departmentId ?? null,
+        "O departamento informado não existe nesta organização.",
+      );
+      await assertPositionHierarchy(
+        db,
+        organizationId,
+        positionId,
+        input.reportsToPositionId ?? null,
+      );
 
-    if (!existingPosition) {
-      throw new HTTPException(404, { message: "Cargo não encontrado." });
-    }
+      await db
+        .update(positions)
+        .set({
+          departmentId: input.departmentId ?? null,
+          title: input.title.trim(),
+          description: normalizeEmpty(input.description),
+          level: normalizeEmpty(input.level),
+          salaryRangeMin: normalizeNumber(input.salaryRangeMin),
+          salaryRangeMax: normalizeNumber(input.salaryRangeMax),
+          requirements: normalizeStringArray(input.requirements),
+          responsibilities: normalizeStringArray(input.responsibilities),
+          reportsToPositionId: input.reportsToPositionId ?? null,
+          requiredEducationLevel: normalizeEmpty(input.requiredEducationLevel),
+          requiredExperienceYears:
+            typeof input.requiredExperienceYears === "number"
+              ? input.requiredExperienceYears
+              : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(positions.id, positionId));
 
-    await assertDepartment(
-      db,
-      organizationId,
-      input.departmentId ?? null,
-      "O departamento informado não existe nesta organização.",
-    );
-    await assertPositionHierarchy(
-      db,
-      organizationId,
-      positionId,
-      input.reportsToPositionId ?? null,
-    );
+      return c.json(await serializePosition(db, positionId));
+    },
+  );
+};
 
-    await db
-      .update(positions)
-      .set({
-        departmentId: input.departmentId ?? null,
-        title: input.title.trim(),
-        description: normalizeEmpty(input.description),
-        level: normalizeEmpty(input.level),
-        salaryRangeMin: normalizeNumber(input.salaryRangeMin),
-        salaryRangeMax: normalizeNumber(input.salaryRangeMax),
-        requirements: normalizeStringArray(input.requirements),
-        responsibilities: normalizeStringArray(input.responsibilities),
-        reportsToPositionId: input.reportsToPositionId ?? null,
-        requiredEducationLevel: normalizeEmpty(input.requiredEducationLevel),
-        requiredExperienceYears:
-          typeof input.requiredExperienceYears === "number"
-            ? input.requiredExperienceYears
-            : null,
-        updatedAt: new Date(),
-      })
-      .where(eq(positions.id, positionId));
-
-    return c.json(await serializePosition(db, positionId));
-  },
-);
+export default organizationPlugin;

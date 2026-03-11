@@ -1,8 +1,7 @@
 import { z } from "zod";
+import { parseWorkOsManagementEnv } from "@daton/auth";
 
 import { loadLocalDevelopmentEnv } from "@daton/db";
-
-import type { AppEnvironment } from "../../../api/src/types";
 
 const optionalTrimmedString = z
   .string()
@@ -34,6 +33,23 @@ const runtimeEnvSchema = z.object({
 });
 
 export type RuntimeEnv = z.infer<typeof runtimeEnvSchema>;
+export type AppEnvironment = {
+  DATABASE_URL?: string;
+  WORKOS_API_KEY: string;
+  WORKOS_CLIENT_ID: string;
+  WORKOS_AUTHKIT_DOMAIN?: string;
+  NEXT_PUBLIC_APP_URL: string;
+  NEXT_PUBLIC_API_URL: string;
+  CORS_ORIGIN: string;
+  SENTRY_DSN?: string;
+  SENTRY_AUTH_TOKEN?: string;
+  SENTRY_ORG?: string;
+  SENTRY_PROJECT?: string;
+  SENTRY_ENVIRONMENT?: string;
+  SENTRY_RELEASE?: string;
+  SENTRY_TRACES_SAMPLE_RATE?: string;
+  ALLOW_FICTIONAL_CNPJ?: "true" | "false";
+};
 
 export const parseRuntimeEnv = (
   environment: NodeJS.ProcessEnv = process.env,
@@ -56,3 +72,6 @@ export const toApiEnvironment = (env: RuntimeEnv): AppEnvironment => ({
   SENTRY_TRACES_SAMPLE_RATE: env.SENTRY_TRACES_SAMPLE_RATE,
   ALLOW_FICTIONAL_CNPJ: env.ALLOW_FICTIONAL_CNPJ,
 });
+
+export const toWorkOsManagementEnv = (env: AppEnvironment) =>
+  parseWorkOsManagementEnv(env);

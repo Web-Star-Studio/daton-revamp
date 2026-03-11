@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { startTransition, useState } from "react";
 
+import { pendingEmailVerificationSummaryStorageKey } from "@/lib/auth-flow";
 import { signIn } from "@/lib/api";
 
 export function SignInForm() {
@@ -27,6 +28,16 @@ export function SignInForm() {
               email,
               password,
             });
+
+            if (result.status === "verification_required") {
+              window.sessionStorage.setItem(
+                pendingEmailVerificationSummaryStorageKey,
+                JSON.stringify(result),
+              );
+              window.location.assign("/auth?mode=verify-email");
+              return;
+            }
+
             window.location.assign(result.redirectTo);
           } catch (signInError) {
             setError(

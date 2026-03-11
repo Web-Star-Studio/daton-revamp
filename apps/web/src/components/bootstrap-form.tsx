@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 
 import { formatCnpj, type SessionResponse } from "@daton/contracts";
+import { pendingEmailVerificationSummaryStorageKey } from "@/lib/auth-flow";
 import { bootstrapOrganization } from "@/lib/api";
 
 type BootstrapFormProps = {
@@ -39,6 +40,16 @@ export function BootstrapForm({ session }: BootstrapFormProps) {
         startTransition(async () => {
           try {
             const result = await bootstrapOrganization(payload);
+
+            if (result.status === "verification_required") {
+              window.sessionStorage.setItem(
+                pendingEmailVerificationSummaryStorageKey,
+                JSON.stringify(result),
+              );
+              window.location.assign("/auth?mode=verify-email");
+              return;
+            }
+
             router.replace(result.redirectTo);
             router.refresh();
           } catch (bootstrapError) {

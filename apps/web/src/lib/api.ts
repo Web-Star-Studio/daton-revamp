@@ -34,6 +34,12 @@ import {
   type UpdatePositionInput,
 } from "@daton/contracts";
 
+import {
+  type AuthResult,
+  authResultSchema,
+  cancelEmailVerificationResultSchema,
+  resendEmailVerificationResultSchema,
+} from "./auth-flow";
 import { resolveBrowserApiBaseUrl, toApiUrl } from "./config";
 
 type ClientFetchOptions = RequestInit & {
@@ -84,16 +90,40 @@ export async function bootstrapOrganization(input: BootstrapOrganizationInput) {
     allowFictional: allowFictionalCnpjInClient(),
   }).parse(input);
 
-  return clientApiFetch<{ redirectTo: string }>("/api/auth/sign-up", {
+  return clientApiFetch<AuthResult>("/api/auth/sign-up", {
     method: "POST",
     body: JSON.stringify(payload),
+    schema: authResultSchema,
   });
 }
 
 export async function signIn(input: { email: string; password: string }) {
-  return clientApiFetch<{ redirectTo: string }>("/api/auth/sign-in", {
+  return clientApiFetch<AuthResult>("/api/auth/sign-in", {
     method: "POST",
     body: JSON.stringify(input),
+    schema: authResultSchema,
+  });
+}
+
+export async function verifyEmailCode(input: { code: string }) {
+  return clientApiFetch<AuthResult>("/api/auth/verify-email", {
+    method: "POST",
+    body: JSON.stringify(input),
+    schema: authResultSchema,
+  });
+}
+
+export async function resendEmailVerificationCode() {
+  return clientApiFetch<{ message: string }>("/api/auth/verify-email/resend", {
+    method: "POST",
+    schema: resendEmailVerificationResultSchema,
+  });
+}
+
+export async function cancelEmailVerification() {
+  return clientApiFetch<{ redirectTo: string }>("/api/auth/verify-email", {
+    method: "DELETE",
+    schema: cancelEmailVerificationResultSchema,
   });
 }
 

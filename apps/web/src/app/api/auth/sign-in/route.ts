@@ -1,18 +1,20 @@
+import * as Sentry from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import {
-  createDatonSessionPayload,
-  refreshWorkOsAuthentication,
+  extractWorkOsEmailVerificationRequiredPayload,
 } from "@daton/auth";
 
 import {
+  clearPendingEmailVerificationCookie,
+  completeBrowserAuthentication,
   authenticateBrowserPassword,
-  fetchSessionContext,
-  getWorkOsManagementEnv,
   isWorkOsAuthenticationFailure,
+  setPendingEmailVerificationCookie,
   setDatonSessionCookie,
 } from "@/lib/auth-session";
+import { getSignInFailureResult } from "@/lib/sign-in-failure";
 
 const signInInputSchema = z.object({
   email: z.email(),
@@ -20,38 +22,78 @@ const signInInputSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  try {
-    const input = signInInputSchema.parse(await request.json());
-    let authentication = await authenticateBrowserPassword(input, request.headers);
-    const sessionContext = await fetchSessionContext(authentication.accessToken);
+  let input: z.infer<typeof signInInputSchema> | null = null;
 
-    if (
-      sessionContext.workosOrganizationId &&
-      authentication.organizationId !== sessionContext.workosOrganizationId
-    ) {
-      authentication = await refreshWorkOsAuthentication(getWorkOsManagementEnv(), {
-        organizationId: sessionContext.workosOrganizationId,
-        refreshToken: authentication.refreshToken,
-      });
-    }
+  try {
+    input = signInInputSchema.parse(await request.json());
+    const authentication = await authenticateBrowserPassword(
+      input,
+      request.headers,
+    );
+    const { sessionContext, sessionPayload } = await completeBrowserAuthentication(
+      authentication,
+      request.headers,
+    );
 
     const response = NextResponse.json({
-      redirectTo: sessionContext.session.organization ? "/app" : "/auth?mode=sign-up",
+      status: "authenticated",
+      redirectTo: sessionContext.session.organization
+        ? "/app"
+        : "/auth?mode=sign-up",
     });
-    await setDatonSessionCookie(response, createDatonSessionPayload(authentication));
+    clearPendingEmailVerificationCookie(response);
+    await setDatonSessionCookie(response, sessionPayload);
 
     return response;
   } catch (error) {
-    const isAuthError = isWorkOsAuthenticationFailure(error);
-    const message = isAuthError
-      ? "E-mail ou senha inválidos."
-      : "Não foi possível entrar no ambiente agora.";
+    const failure = getSignInFailureResult(error);
+
+    if (
+      failure.classified.kind === "email_verification_required" &&
+      input
+    ) {
+      const payload = extractWorkOsEmailVerificationRequiredPayload(error);
+
+      if (payload) {
+        Sentry.withScope((scope) => {
+          scope.setTag("auth.error_kind", failure.classified.kind);
+          scope.setTag("auth.flow", "sign-in");
+          scope.setTag("auth.step", "password");
+          Sentry.captureException(error);
+        });
+
+        const response = NextResponse.json({
+          email: input.email,
+          flow: "sign-in",
+          message: failure.message,
+          status: "verification_required",
+        });
+        await setPendingEmailVerificationCookie(response, {
+          email: input.email,
+          emailVerificationId: payload.emailVerificationId,
+          flow: "sign-in",
+          pendingAuthenticationToken: payload.pendingAuthenticationToken,
+          targetWorkosOrganizationId: null,
+        });
+
+        return response;
+      }
+    }
+
+    if (failure.classified.isExpected || isWorkOsAuthenticationFailure(error)) {
+      Sentry.withScope((scope) => {
+        scope.setTag("auth.error_kind", failure.classified.kind);
+        scope.setTag("auth.flow", "sign-in");
+        scope.setTag("auth.step", "password");
+        Sentry.captureException(error);
+      });
+    }
 
     return NextResponse.json(
       {
-        message,
+        message: failure.message,
       },
-      { status: isAuthError ? 401 : 500 },
+      { status: failure.status },
     );
   }
 }

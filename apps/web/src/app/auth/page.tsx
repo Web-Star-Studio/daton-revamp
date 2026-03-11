@@ -3,6 +3,12 @@ import { redirect } from "next/navigation";
 
 import { BootstrapForm } from "@/components/bootstrap-form";
 import { SignInForm } from "@/components/sign-in-form";
+import { VerifyEmailForm } from "@/components/verify-email-form";
+import { getPendingEmailVerificationFromCookieStore } from "@/lib/auth-session";
+import {
+  getVerifyEmailCopy,
+  type VerificationRequiredAuthResult,
+} from "@/lib/auth-flow";
 import { getServerSession } from "@/lib/server-api";
 
 type AuthPageProps = {
@@ -11,10 +17,10 @@ type AuthPageProps = {
   }>;
 };
 
-type AuthMode = "sign-in" | "sign-up";
+type AuthMode = "sign-in" | "sign-up" | "verify-email";
 
 const authModes: Record<
-  AuthMode,
+  Exclude<AuthMode, "verify-email">,
   {
     description: string;
     kicker: string;
@@ -37,13 +43,19 @@ const authModes: Record<
 };
 
 const getAuthMode = (value?: string): AuthMode =>
-  value === "sign-up" ? "sign-up" : "sign-in";
+  value === "sign-up"
+    ? "sign-up"
+    : value === "verify-email"
+      ? "verify-email"
+      : "sign-in";
 
 export default async function AuthPage({ searchParams }: AuthPageProps) {
   const resolvedSearchParams = await searchParams;
   const mode = getAuthMode(resolvedSearchParams.mode);
-  const content = authModes[mode];
   const session = await getServerSession();
+  const pendingVerification = mode === "verify-email"
+    ? await getPendingEmailVerificationFromCookieStore()
+    : null;
 
   if (session?.organization) {
     redirect(
@@ -56,6 +68,28 @@ export default async function AuthPage({ searchParams }: AuthPageProps) {
   if (mode === "sign-in" && session) {
     redirect("/auth?mode=sign-up");
   }
+
+  const verificationState =
+    mode === "verify-email" && pendingVerification
+      ? {
+          email: pendingVerification.email,
+          flow: pendingVerification.flow,
+          message: getVerifyEmailCopy(pendingVerification.flow).inlineMessage,
+          status: "verification_required" as const,
+        }
+      : null;
+
+  const content = verificationState
+    ? getVerifyEmailCopy(verificationState.flow)
+    : mode === "verify-email"
+      ? {
+          description:
+            "Para concluir a autenticação, confirme o código enviado para o seu e-mail de trabalho.",
+          kicker: "Verificar e-mail",
+          title:
+            "Confirme o código de verificação para concluir a entrada no Daton.",
+        }
+      : authModes[mode];
 
   return (
     <main className="auth-shell auth-shell--fullbleed">
@@ -79,7 +113,13 @@ export default async function AuthPage({ searchParams }: AuthPageProps) {
         <div className="auth-panel__form auth-panel__form--chrome">
           <p className="form-kicker">{content.kicker}</p>
           <p className="auth-panel__description">{content.description}</p>
-          {mode === "sign-in" ? <SignInForm /> : <BootstrapForm session={session} />}
+          {mode === "sign-in" ? (
+            <SignInForm />
+          ) : mode === "sign-up" ? (
+            <BootstrapForm session={session} />
+          ) : (
+            <VerifyEmailForm pendingVerification={verificationState} />
+          )}
         </div>
       </section>
     </main>

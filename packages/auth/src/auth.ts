@@ -23,6 +23,7 @@ const defaultWorkOsIssuer = "https://api.workos.com";
 
 export const datonSessionCookieName = "daton-session";
 export const accessTokenRefreshWindowSeconds = 60;
+export const pendingEmailVerificationLifetimeSeconds = 60 * 15;
 
 export type DatonSessionCookiePayload = {
   refreshToken: string;
@@ -30,6 +31,21 @@ export type DatonSessionCookiePayload = {
   accessTokenExpiresAt: string;
   workosUserId: string;
   workosOrganizationId: string | null;
+};
+
+export type PendingEmailVerificationFlow = "sign-in" | "sign-up";
+
+export type PendingEmailVerificationCookiePayload = {
+  pendingAuthenticationToken: string;
+  email: string;
+  emailVerificationId: string;
+  flow: PendingEmailVerificationFlow;
+  targetWorkosOrganizationId: string | null;
+};
+
+export type WorkOsEmailVerificationRequiredPayload = {
+  emailVerificationId: string;
+  pendingAuthenticationToken: string;
 };
 
 export type WorkOsAccessTokenClaims = JWTPayload & {
@@ -73,8 +89,24 @@ export type BootstrapOrganizationResult = {
 };
 
 const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
-const sessionKeyDerivationSalt = textEncoder.encode("daton.session.v1");
-const sessionKeyDerivationInfo = textEncoder.encode("daton/session-encryption");
+const sessionKeyDerivationSalt = new Uint8Array(
+  textEncoder.encode("daton.session.v1"),
+);
+const sessionKeyDerivationInfo = new Uint8Array(
+  textEncoder.encode("daton/session-encryption"),
+);
+const pendingEmailVerificationSalt = new Uint8Array(
+  textEncoder.encode("daton.pending-email-verification.v1"),
+);
+const pendingEmailVerificationInfo = new Uint8Array(
+  textEncoder.encode("daton/pending-email-verification-encryption"),
+);
+
+const toArrayBuffer = (value: Uint8Array) =>
+  value.buffer.slice(
+    value.byteOffset,
+    value.byteOffset + value.byteLength,
+  ) as ArrayBuffer;
 
 const getWorkOsJwks = (clientId: string) => {
   const cached = jwksCache.get(clientId);
@@ -105,7 +137,11 @@ const getExpectedWorkOsIssuers = (env: WorkOsEnv) => {
   return [issuerBase, `${issuerBase}/`];
 };
 
-const getSessionEncryptionKey = async (secret: string) => {
+const getSessionEncryptionKey = async (
+  secret: string,
+  salt: Uint8Array = sessionKeyDerivationSalt,
+  info: Uint8Array = sessionKeyDerivationInfo,
+) => {
   const importedKey = await crypto.subtle.importKey(
     "raw",
     textEncoder.encode(secret),
@@ -117,14 +153,66 @@ const getSessionEncryptionKey = async (secret: string) => {
     {
       name: "HKDF",
       hash: "SHA-256",
-      salt: sessionKeyDerivationSalt,
-      info: sessionKeyDerivationInfo,
+      salt: toArrayBuffer(salt),
+      info: toArrayBuffer(info),
     },
     importedKey,
     256,
   );
 
   return new Uint8Array(derivedBits);
+};
+
+const sealEncryptedPayload = async (
+  payload: JWTPayload,
+  env: DatonSessionEnv,
+  options: {
+    expiresInSeconds: number;
+    info: Uint8Array;
+    salt: Uint8Array;
+  },
+) =>
+  new EncryptJWT(payload)
+    .setProtectedHeader({ alg: "dir", enc: "A256GCM", typ: "JWT" })
+    .setIssuedAt()
+    .setExpirationTime(`${options.expiresInSeconds}s`)
+    .encrypt(
+      await getSessionEncryptionKey(
+        env.DATON_SESSION_SECRET,
+        options.salt,
+        options.info,
+      ),
+    );
+
+const unsealEncryptedPayload = async (
+  value: string | undefined,
+  env: DatonSessionEnv,
+  options: {
+    info: Uint8Array;
+    salt: Uint8Array;
+  },
+) => {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const { payload } = await jwtDecrypt(
+      value,
+      await getSessionEncryptionKey(
+        env.DATON_SESSION_SECRET,
+        options.salt,
+        options.info,
+      ),
+      {
+        contentEncryptionAlgorithms: ["A256GCM"],
+      },
+    );
+
+    return payload;
+  } catch {
+    return null;
+  }
 };
 
 const assertAccessTokenClaims = (payload: JWTPayload): WorkOsAccessTokenClaims => {
@@ -177,7 +265,9 @@ export const isAccessTokenExpired = (
 ) => Date.parse(accessTokenExpiresAt) <= Date.now() + bufferSeconds * 1000;
 
 export const createDatonSessionPayload = (
-  authentication: Pick<AuthenticationResponse, "accessToken" | "refreshToken" | "user" | "organizationId">,
+  authentication: Pick<AuthenticationResponse, "accessToken" | "refreshToken" | "user"> & {
+    organizationId?: string | null;
+  },
 ): DatonSessionCookiePayload => ({
   refreshToken: authentication.refreshToken,
   accessToken: authentication.accessToken,
@@ -190,51 +280,134 @@ export const sealDatonSession = async (
   payload: DatonSessionCookiePayload,
   env: DatonSessionEnv,
 ) =>
-  new EncryptJWT(payload)
-    .setProtectedHeader({ alg: "dir", enc: "A256GCM", typ: "JWT" })
-    .setIssuedAt()
-    .setExpirationTime(`${sessionLifetimeSeconds}s`)
-    .encrypt(await getSessionEncryptionKey(env.DATON_SESSION_SECRET));
+  sealEncryptedPayload(payload, env, {
+    expiresInSeconds: sessionLifetimeSeconds,
+    info: sessionKeyDerivationInfo,
+    salt: sessionKeyDerivationSalt,
+  });
 
 export const unsealDatonSession = async (
   value: string | undefined,
   env: DatonSessionEnv,
 ): Promise<DatonSessionCookiePayload | null> => {
-  if (!value) {
+  const payload = await unsealEncryptedPayload(value, env, {
+    info: sessionKeyDerivationInfo,
+    salt: sessionKeyDerivationSalt,
+  });
+
+  if (
+    !payload ||
+    typeof payload.refreshToken !== "string" ||
+    typeof payload.accessToken !== "string" ||
+    typeof payload.accessTokenExpiresAt !== "string" ||
+    typeof payload.workosUserId !== "string"
+  ) {
     return null;
   }
 
-  try {
-    const { payload } = await jwtDecrypt(
-      value,
-      await getSessionEncryptionKey(env.DATON_SESSION_SECRET),
-      {
-        contentEncryptionAlgorithms: ["A256GCM"],
-      },
+  return {
+    refreshToken: payload.refreshToken,
+    accessToken: payload.accessToken,
+    accessTokenExpiresAt: payload.accessTokenExpiresAt,
+    workosUserId: payload.workosUserId,
+    workosOrganizationId:
+      typeof payload.workosOrganizationId === "string"
+        ? payload.workosOrganizationId
+        : null,
+  };
+};
+
+export const sealPendingEmailVerification = async (
+  payload: PendingEmailVerificationCookiePayload,
+  env: DatonSessionEnv,
+) =>
+  sealEncryptedPayload(payload, env, {
+    expiresInSeconds: pendingEmailVerificationLifetimeSeconds,
+    info: pendingEmailVerificationInfo,
+    salt: pendingEmailVerificationSalt,
+  });
+
+export const unsealPendingEmailVerification = async (
+  value: string | undefined,
+  env: DatonSessionEnv,
+): Promise<PendingEmailVerificationCookiePayload | null> => {
+  const payload = await unsealEncryptedPayload(value, env, {
+    info: pendingEmailVerificationInfo,
+    salt: pendingEmailVerificationSalt,
+  });
+
+  if (
+    !payload ||
+    typeof payload.pendingAuthenticationToken !== "string" ||
+    typeof payload.email !== "string" ||
+    typeof payload.emailVerificationId !== "string" ||
+    (payload.flow !== "sign-in" && payload.flow !== "sign-up")
+  ) {
+    return null;
+  }
+
+  return {
+    pendingAuthenticationToken: payload.pendingAuthenticationToken,
+    email: payload.email,
+    emailVerificationId: payload.emailVerificationId,
+    flow: payload.flow,
+    targetWorkosOrganizationId:
+      typeof payload.targetWorkosOrganizationId === "string"
+        ? payload.targetWorkosOrganizationId
+        : null,
+  };
+};
+
+const getObjectProperty = (value: unknown, key: string) => {
+  if (!value || typeof value !== "object" || !(key in value)) {
+    return undefined;
+  }
+
+  return (value as Record<string, unknown>)[key];
+};
+
+const getStringProperty = (value: unknown, ...keys: string[]) => {
+  for (const key of keys) {
+    const candidate = getObjectProperty(value, key);
+
+    if (typeof candidate === "string" && candidate) {
+      return candidate;
+    }
+  }
+
+  return null;
+};
+
+export const extractWorkOsEmailVerificationRequiredPayload = (
+  error: unknown,
+): WorkOsEmailVerificationRequiredPayload | null => {
+  const sources = [
+    error,
+    getObjectProperty(error, "rawData"),
+    getObjectProperty(error, "errors"),
+  ];
+
+  for (const source of sources) {
+    const pendingAuthenticationToken = getStringProperty(
+      source,
+      "pending_authentication_token",
+      "pendingAuthenticationToken",
+    );
+    const emailVerificationId = getStringProperty(
+      source,
+      "email_verification_id",
+      "emailVerificationId",
     );
 
-    if (
-      typeof payload.refreshToken !== "string" ||
-      typeof payload.accessToken !== "string" ||
-      typeof payload.accessTokenExpiresAt !== "string" ||
-      typeof payload.workosUserId !== "string"
-    ) {
-      return null;
+    if (pendingAuthenticationToken && emailVerificationId) {
+      return {
+        emailVerificationId,
+        pendingAuthenticationToken,
+      };
     }
-
-    return {
-      refreshToken: payload.refreshToken,
-      accessToken: payload.accessToken,
-      accessTokenExpiresAt: payload.accessTokenExpiresAt,
-      workosUserId: payload.workosUserId,
-      workosOrganizationId:
-        typeof payload.workosOrganizationId === "string"
-          ? payload.workosOrganizationId
-          : null,
-    };
-  } catch {
-    return null;
   }
+
+  return null;
 };
 
 export const authenticateWithWorkOsPassword = async (
@@ -252,6 +425,37 @@ export const authenticateWithWorkOsPassword = async (
     password: input.password,
     ipAddress: input.ipAddress,
     userAgent: input.userAgent,
+  });
+
+export const authenticateWithWorkOsEmailVerification = async (
+  env: WorkOsManagementEnv,
+  input: {
+    code: string;
+    pendingAuthenticationToken: string;
+    ipAddress?: string;
+    userAgent?: string;
+  },
+) =>
+  createWorkOsClient(env).userManagement.authenticateWithEmailVerification({
+    clientId: env.WORKOS_CLIENT_ID,
+    code: input.code,
+    pendingAuthenticationToken: input.pendingAuthenticationToken,
+    ipAddress: input.ipAddress,
+    userAgent: input.userAgent,
+  });
+
+export const getWorkOsEmailVerification = async (
+  env: WorkOsManagementEnv,
+  emailVerificationId: string,
+) =>
+  createWorkOsClient(env).userManagement.getEmailVerification(emailVerificationId);
+
+export const sendWorkOsVerificationEmail = async (
+  env: WorkOsManagementEnv,
+  input: { userId: string },
+) =>
+  createWorkOsClient(env).userManagement.sendVerificationEmail({
+    userId: input.userId,
   });
 
 export const refreshWorkOsAuthentication = async (

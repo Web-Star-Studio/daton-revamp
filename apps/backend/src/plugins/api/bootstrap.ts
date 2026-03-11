@@ -1,7 +1,10 @@
 import * as Sentry from "@sentry/node";
 import { ZodError } from "zod";
 
-import { bootstrapOrganizationWithWorkOs } from "@daton/auth";
+import {
+  bootstrapOrganizationWithWorkOs,
+  classifyWorkOsUserFacingError,
+} from "@daton/auth";
 import {
   createBootstrapOrganizationSchema,
   organizationMemberSummarySchema,
@@ -10,7 +13,10 @@ import {
 
 import { recordAuditEvent } from "../../lib/audit";
 import { HTTPException } from "../../lib/errors";
-import { createRouteContext, type AppRouteContext } from "../../lib/route-context";
+import {
+  createRouteContext,
+  type AppRouteContext,
+} from "../../lib/route-context";
 import type { AppDbExecutor, SessionSnapshot } from "../../lib/session";
 import type { FastifyBaseLogger, FastifyPluginAsync } from "fastify";
 
@@ -49,7 +55,9 @@ const isLegalIdentifierConflict = (error: unknown) => {
       ? error.column_name
       : null,
     "detail" in error && typeof error.detail === "string" ? error.detail : null,
-    "message" in error && typeof error.message === "string" ? error.message : null,
+    "message" in error && typeof error.message === "string"
+      ? error.message
+      : null,
   ]
     .filter((value): value is string => Boolean(value))
     .map((value) => value.toLowerCase());
@@ -61,7 +69,7 @@ const isLegalIdentifierConflict = (error: unknown) => {
   );
 };
 
-const classifyBootstrapError = (
+export const classifyBootstrapError = (
   error: unknown,
   logger: Pick<FastifyBaseLogger, "warn">,
 ): { message: string; status: 400 | 409 | 500 | 502 | 503 } => {
@@ -94,6 +102,18 @@ const classifyBootstrapError = (
     };
   }
 
+  const classifiedWorkOsError = classifyWorkOsUserFacingError(
+    error,
+    "bootstrap",
+  );
+
+  if (classifiedWorkOsError.isExpected) {
+    return {
+      message: classifiedWorkOsError.message,
+      status: 400,
+    };
+  }
+
   if (
     status === 400 ||
     status === 409 ||
@@ -102,7 +122,8 @@ const classifyBootstrapError = (
     code === "23505"
   ) {
     return {
-      message: "Não foi possível criar o ambiente inicial com os dados informados.",
+      message:
+        "Não foi possível criar o ambiente inicial com os dados informados.",
       status: 400,
     };
   }
@@ -173,7 +194,8 @@ const assertAuthenticatedBootstrapIdentity = (
 ) => {
   if (input.adminEmail !== snapshot.user.email) {
     throw new HTTPException(400, {
-      message: "O e-mail do administrador deve corresponder ao usuário autenticado.",
+      message:
+        "O e-mail do administrador deve corresponder ao usuário autenticado.",
     });
   }
 
@@ -183,7 +205,8 @@ const assertAuthenticatedBootstrapIdentity = (
       normalizeComparableName(snapshot.user.name)
   ) {
     throw new HTTPException(400, {
-      message: "O nome do administrador deve corresponder ao usuário autenticado.",
+      message:
+        "O nome do administrador deve corresponder ao usuário autenticado.",
     });
   }
 };
@@ -230,13 +253,20 @@ const bootstrapPlugin: FastifyPluginAsync = async (fastify) => {
           : null,
       );
     } catch (error) {
-      Sentry.captureException(error);
+      const classified = classifyBootstrapError(error, request.log);
+
+      Sentry.withScope((scope) => {
+        scope.setTag(
+          "auth.error_kind",
+          classifyWorkOsUserFacingError(error, "bootstrap").kind,
+        );
+        scope.setTag("auth.flow", "bootstrap");
+        Sentry.captureException(error);
+      });
 
       if (error instanceof HTTPException) {
         throw error;
       }
-
-      const classified = classifyBootstrapError(error, request.log);
 
       throw new HTTPException(classified.status, {
         message: classified.message,

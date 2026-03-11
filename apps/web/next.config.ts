@@ -10,18 +10,11 @@ import {
 
 const sentryRelease = getWebSentryRelease();
 const hasSentryUpload = hasSentryBuildConfiguration();
-const requiredUrlEnvKeys = [
-  "NEXT_PUBLIC_APP_URL",
-  "NEXT_PUBLIC_API_URL",
-  "INTERNAL_API_URL",
-] as const;
 const requiredUrlEnv = {
   NEXT_PUBLIC_APP_URL:
     process.env.NEXT_PUBLIC_APP_URL?.trim() ?? "http://127.0.0.1:3000",
   NEXT_PUBLIC_API_URL:
     process.env.NEXT_PUBLIC_API_URL?.trim() ?? "http://127.0.0.1:3000",
-  INTERNAL_API_URL:
-    process.env.INTERNAL_API_URL?.trim() ?? "http://127.0.0.1:8787",
 };
 
 const nextConfig: NextConfig = {
@@ -31,7 +24,6 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_URL: requiredUrlEnv.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_API_URL: requiredUrlEnv.NEXT_PUBLIC_API_URL,
-    INTERNAL_API_URL: requiredUrlEnv.INTERNAL_API_URL,
     SENTRY_ENVIRONMENT: getWebSentryEnvironment(),
     SENTRY_RELEASE: sentryRelease ?? "",
     SENTRY_TRACES_SAMPLE_RATE: String(getWebSentryTracesSampleRate()),

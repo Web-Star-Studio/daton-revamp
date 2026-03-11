@@ -31,69 +31,101 @@ const transientErrorCodes = new Set([
 const normalizeComparableName = (value: string | null | undefined) =>
   value?.trim().replace(/\s+/g, " ").toLocaleLowerCase() ?? null;
 
+const getErrorChain = (error: unknown) => {
+  const queue = [error];
+  const seen = new Set<unknown>();
+  const chain: Array<Record<string, unknown>> = [];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+
+    if (!current || typeof current !== "object" || seen.has(current)) {
+      continue;
+    }
+
+    seen.add(current);
+    chain.push(current as Record<string, unknown>);
+
+    if (current instanceof AggregateError) {
+      queue.push(...current.errors);
+    }
+
+    if ("cause" in current) {
+      queue.push(current.cause);
+    }
+  }
+
+  return chain;
+};
+
+const getErrorStatus = (error: unknown) => {
+  for (const candidate of getErrorChain(error)) {
+    if (typeof candidate.status === "number") {
+      return candidate.status;
+    }
+
+    if (typeof candidate.statusCode === "number") {
+      return candidate.statusCode;
+    }
+  }
+
+  return null;
+};
+
+const getErrorCode = (error: unknown) => {
+  for (const candidate of getErrorChain(error)) {
+    if (typeof candidate.code === "string") {
+      return candidate.code;
+    }
+  }
+
+  return null;
+};
+
+const getErrorName = (error: unknown) => {
+  for (const candidate of getErrorChain(error)) {
+    if (typeof candidate.name === "string") {
+      return candidate.name;
+    }
+  }
+
+  return null;
+};
+
 const isLegalIdentifierConflict = (error: unknown) => {
-  if (!error || typeof error !== "object") {
-    return false;
-  }
+  return getErrorChain(error).some((candidate) => {
+    if (typeof candidate.code !== "string" || candidate.code !== "23505") {
+      return false;
+    }
 
-  const code =
-    "code" in error && typeof error.code === "string" ? error.code : null;
+    const values = [
+      typeof candidate.constraint === "string" ? candidate.constraint : null,
+      typeof candidate.constraint_name === "string"
+        ? candidate.constraint_name
+        : null,
+      typeof candidate.column === "string" ? candidate.column : null,
+      typeof candidate.column_name === "string" ? candidate.column_name : null,
+      typeof candidate.detail === "string" ? candidate.detail : null,
+      typeof candidate.message === "string" ? candidate.message : null,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => value.toLowerCase());
 
-  if (code !== "23505") {
-    return false;
-  }
-
-  const candidates = [
-    "constraint" in error && typeof error.constraint === "string"
-      ? error.constraint
-      : null,
-    "constraint_name" in error && typeof error.constraint_name === "string"
-      ? error.constraint_name
-      : null,
-    "column" in error && typeof error.column === "string" ? error.column : null,
-    "column_name" in error && typeof error.column_name === "string"
-      ? error.column_name
-      : null,
-    "detail" in error && typeof error.detail === "string" ? error.detail : null,
-    "message" in error && typeof error.message === "string"
-      ? error.message
-      : null,
-  ]
-    .filter((value): value is string => Boolean(value))
-    .map((value) => value.toLowerCase());
-
-  return candidates.some(
-    (value) =>
-      value.includes("organizations_legal_identifier_idx") ||
-      value.includes("legal_identifier"),
-  );
+    return values.some(
+      (value) =>
+        value.includes("organizations_legal_identifier_idx") ||
+        value.includes("legal_identifier"),
+    );
+  });
 };
 
 export const classifyBootstrapError = (
   error: unknown,
   logger: Pick<FastifyBaseLogger, "warn">,
 ): { message: string; status: 400 | 409 | 500 | 502 | 503 } => {
-  const status =
-    error &&
-    typeof error === "object" &&
-    "status" in error &&
-    typeof error.status === "number"
-      ? error.status
-      : null;
-  const code =
-    error &&
-    typeof error === "object" &&
-    "code" in error &&
-    typeof error.code === "string"
-      ? error.code
-      : null;
-  const name =
-    error &&
-    typeof error === "object" &&
-    "name" in error &&
-    typeof error.name === "string"
-      ? error.name
-      : null;
+  const status = getErrorStatus(error);
+  const code = getErrorCode(error);
+  const name = getErrorName(error);
 
   if (isLegalIdentifierConflict(error)) {
     return {
@@ -255,14 +287,16 @@ const bootstrapPlugin: FastifyPluginAsync = async (fastify) => {
     } catch (error) {
       const classified = classifyBootstrapError(error, request.log);
 
-      Sentry.withScope((scope) => {
-        scope.setTag(
-          "auth.error_kind",
-          classifyWorkOsUserFacingError(error, "bootstrap").kind,
-        );
-        scope.setTag("auth.flow", "bootstrap");
-        Sentry.captureException(error);
-      });
+      if (classified.status >= 500) {
+        Sentry.withScope((scope) => {
+          scope.setTag(
+            "auth.error_kind",
+            classifyWorkOsUserFacingError(error, "bootstrap").kind,
+          );
+          scope.setTag("auth.flow", "bootstrap");
+          Sentry.captureException(error);
+        });
+      }
 
       if (error instanceof HTTPException) {
         throw error;

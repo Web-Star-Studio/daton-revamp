@@ -88,6 +88,17 @@ export type BootstrapOrganizationResult = {
   workosUser: User;
 };
 
+export class OrganizationLegalIdentifierConflictError extends Error {
+  readonly code = "23505";
+  readonly column = "legal_identifier";
+  readonly constraint = "organizations_legal_identifier_idx";
+
+  constructor() {
+    super('duplicate key value violates unique constraint "organizations_legal_identifier_idx"');
+    this.name = "OrganizationLegalIdentifierConflictError";
+  }
+}
+
 const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 const sessionKeyDerivationSalt = new Uint8Array(
   textEncoder.encode("daton.session.v1"),
@@ -580,12 +591,34 @@ const cleanupWorkOsBootstrap = async (
   return cleanupErrors;
 };
 
+const findOrganizationByLegalIdentifier = async (
+  db: DatonDb,
+  legalIdentifier: string,
+) => {
+  const [organization] = await db
+    .select({ id: organizations.id })
+    .from(organizations)
+    .where(eq(organizations.legalIdentifier, legalIdentifier))
+    .limit(1);
+
+  return organization ?? null;
+};
+
 export const bootstrapOrganizationWithWorkOs = async (
   db: DatonDb,
   env: WorkOsManagementEnv,
   input: BootstrapOrganizationInput,
   authenticatedUser?: Pick<User, "id" | "email" | "firstName" | "lastName"> | null,
 ): Promise<BootstrapOrganizationResult> => {
+  const existingOrganization = await findOrganizationByLegalIdentifier(
+    db,
+    input.legalIdentifier,
+  );
+
+  if (existingOrganization) {
+    throw new OrganizationLegalIdentifierConflictError();
+  }
+
   const workos = createWorkOsClient(env);
   const created: {
     membershipId?: string | null;

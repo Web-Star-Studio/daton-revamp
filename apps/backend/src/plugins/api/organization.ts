@@ -495,8 +495,17 @@ const assertPositionHierarchy = async (
   }
 
   let cursor: string | null = reportsToPositionId;
+  const visited = new Set<string>();
 
   while (cursor) {
+    if (visited.has(cursor)) {
+      throw new HTTPException(400, {
+        message: "A hierarquia de cargos contém um ciclo.",
+      });
+    }
+
+    visited.add(cursor);
+
     const [parent] = await db
       .select({
         id: positions.id,
@@ -587,7 +596,11 @@ const ensureDepartmentBranches = async (
   return availableBranches;
 };
 
-const serializeDepartment = async (db: AppDbExecutor, departmentId: string) => {
+const serializeDepartment = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  departmentId: string,
+) => {
   const [record] = await db
     .select({
       id: departments.id,
@@ -606,7 +619,12 @@ const serializeDepartment = async (db: AppDbExecutor, departmentId: string) => {
       updatedAt: departments.updatedAt,
     })
     .from(departments)
-    .where(eq(departments.id, departmentId))
+    .where(
+      and(
+        eq(departments.id, departmentId),
+        eq(departments.organizationId, organizationId),
+      ),
+    )
     .limit(1);
 
   if (!record) {
@@ -623,10 +641,15 @@ const serializeDepartment = async (db: AppDbExecutor, departmentId: string) => {
               fullName: organizationMembers.fullName,
             })
             .from(organizationMembers)
-            .where(eq(organizationMembers.id, record.managerMemberId))
+            .where(
+              and(
+                eq(organizationMembers.id, record.managerMemberId),
+                eq(organizationMembers.organizationId, organizationId),
+              ),
+            )
             .limit(1)
             .then((rows) => rows[0] ?? null)
-        : Promise.resolve(null),
+      : Promise.resolve(null),
       record.managerEmployeeId
         ? db
             .select({
@@ -634,10 +657,15 @@ const serializeDepartment = async (db: AppDbExecutor, departmentId: string) => {
               fullName: employees.fullName,
             })
             .from(employees)
-            .where(eq(employees.id, record.managerEmployeeId))
+            .where(
+              and(
+                eq(employees.id, record.managerEmployeeId),
+                eq(employees.organizationId, organizationId),
+              ),
+            )
             .limit(1)
             .then((rows) => rows[0] ?? null)
-        : Promise.resolve(null),
+      : Promise.resolve(null),
       record.parentDepartmentId
         ? db
             .select({
@@ -645,21 +673,36 @@ const serializeDepartment = async (db: AppDbExecutor, departmentId: string) => {
               name: departments.name,
             })
             .from(departments)
-            .where(eq(departments.id, record.parentDepartmentId))
+            .where(
+              and(
+                eq(departments.id, record.parentDepartmentId),
+                eq(departments.organizationId, organizationId),
+              ),
+            )
             .limit(1)
             .then((rows) => rows[0] ?? null)
-        : Promise.resolve(null),
+      : Promise.resolve(null),
       db
         .select({ id: employees.id })
         .from(employees)
-        .where(eq(employees.departmentId, departmentId)),
+        .where(
+          and(
+            eq(employees.departmentId, departmentId),
+            eq(employees.organizationId, organizationId),
+          ),
+        ),
       db
         .select({
           id: departments.id,
           name: departments.name,
         })
         .from(departments)
-        .where(eq(departments.parentDepartmentId, departmentId)),
+        .where(
+          and(
+            eq(departments.parentDepartmentId, departmentId),
+            eq(departments.organizationId, organizationId),
+          ),
+        ),
     ]);
 
   const assignments = await db
@@ -669,7 +712,13 @@ const serializeDepartment = async (db: AppDbExecutor, departmentId: string) => {
     })
     .from(departmentBranchAssignments)
     .innerJoin(branches, eq(departmentBranchAssignments.branchId, branches.id))
-    .where(eq(departmentBranchAssignments.departmentId, departmentId));
+    .where(
+      and(
+        eq(departmentBranchAssignments.departmentId, departmentId),
+        eq(departmentBranchAssignments.organizationId, organizationId),
+        eq(branches.organizationId, organizationId),
+      ),
+    );
 
   const sortedAssignments = [...assignments].sort((left, right) =>
     left.branchName.localeCompare(right.branchName, "pt-BR"),
@@ -702,7 +751,11 @@ const serializeDepartment = async (db: AppDbExecutor, departmentId: string) => {
   };
 };
 
-const serializePosition = async (db: AppDbExecutor, positionId: string) => {
+const serializePosition = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  positionId: string,
+) => {
   const [record] = await db
     .select({
       id: positions.id,
@@ -722,7 +775,12 @@ const serializePosition = async (db: AppDbExecutor, positionId: string) => {
       updatedAt: positions.updatedAt,
     })
     .from(positions)
-    .where(eq(positions.id, positionId))
+    .where(
+      and(
+        eq(positions.id, positionId),
+        eq(positions.organizationId, organizationId),
+      ),
+    )
     .limit(1);
 
   if (!record) {
@@ -739,7 +797,12 @@ const serializePosition = async (db: AppDbExecutor, positionId: string) => {
             name: departments.name,
           })
           .from(departments)
-          .where(eq(departments.id, record.departmentId))
+          .where(
+            and(
+              eq(departments.id, record.departmentId),
+              eq(departments.organizationId, organizationId),
+            ),
+          )
           .limit(1)
           .then((rows) => rows[0] ?? null)
       : Promise.resolve(null),
@@ -750,7 +813,12 @@ const serializePosition = async (db: AppDbExecutor, positionId: string) => {
             title: positions.title,
           })
           .from(positions)
-          .where(eq(positions.id, record.reportsToPositionId))
+          .where(
+            and(
+              eq(positions.id, record.reportsToPositionId),
+              eq(positions.organizationId, organizationId),
+            ),
+          )
           .limit(1)
           .then((rows) => rows[0] ?? null)
       : Promise.resolve(null),
@@ -779,7 +847,11 @@ const serializePosition = async (db: AppDbExecutor, positionId: string) => {
   });
 };
 
-const serializeEmployee = async (db: AppDbExecutor, employeeId: string) => {
+const serializeEmployee = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  employeeId: string,
+) => {
   const [record] = await db
     .select({
       id: employees.id,
@@ -808,7 +880,12 @@ const serializeEmployee = async (db: AppDbExecutor, employeeId: string) => {
       updatedAt: employees.updatedAt,
     })
     .from(employees)
-    .where(eq(employees.id, employeeId))
+    .where(
+      and(
+        eq(employees.id, employeeId),
+        eq(employees.organizationId, organizationId),
+      ),
+    )
     .limit(1);
 
   if (!record) {
@@ -825,7 +902,12 @@ const serializeEmployee = async (db: AppDbExecutor, employeeId: string) => {
             name: departments.name,
           })
           .from(departments)
-          .where(eq(departments.id, record.departmentId))
+          .where(
+            and(
+              eq(departments.id, record.departmentId),
+              eq(departments.organizationId, organizationId),
+            ),
+          )
           .limit(1)
           .then((rows) => rows[0] ?? null)
       : Promise.resolve(null),
@@ -836,7 +918,12 @@ const serializeEmployee = async (db: AppDbExecutor, employeeId: string) => {
             title: positions.title,
           })
           .from(positions)
-          .where(eq(positions.id, record.positionId))
+          .where(
+            and(
+              eq(positions.id, record.positionId),
+              eq(positions.organizationId, organizationId),
+            ),
+          )
           .limit(1)
           .then((rows) => rows[0] ?? null)
       : Promise.resolve(null),
@@ -847,7 +934,12 @@ const serializeEmployee = async (db: AppDbExecutor, employeeId: string) => {
             fullName: employees.fullName,
           })
           .from(employees)
-          .where(eq(employees.id, record.managerId))
+          .where(
+            and(
+              eq(employees.id, record.managerId),
+              eq(employees.organizationId, organizationId),
+            ),
+          )
           .limit(1)
           .then((rows) => rows[0] ?? null)
       : Promise.resolve(null),
@@ -858,7 +950,12 @@ const serializeEmployee = async (db: AppDbExecutor, employeeId: string) => {
             name: branches.name,
           })
           .from(branches)
-          .where(eq(branches.id, record.branchId))
+          .where(
+            and(
+              eq(branches.id, record.branchId),
+              eq(branches.organizationId, organizationId),
+            ),
+          )
           .limit(1)
           .then((rows) => rows[0] ?? null)
       : Promise.resolve(null),
@@ -1333,14 +1430,15 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
         throw new HTTPException(401, { message: "Autenticação obrigatória." });
       }
 
+      const organizationId = snapshot.organization.id;
       const db = c.get("db");
       const records = await db
         .select({ id: departments.id })
         .from(departments)
-        .where(eq(departments.organizationId, snapshot.organization.id));
+        .where(eq(departments.organizationId, organizationId));
 
       const serialized = await Promise.all(
-        records.map((record) => serializeDepartment(db, record.id)),
+        records.map((record) => serializeDepartment(db, organizationId, record.id)),
       );
 
       return c.json(
@@ -1452,7 +1550,7 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
         return department.id;
       });
 
-      return c.json(await serializeDepartment(db, result), 201);
+      return c.json(await serializeDepartment(db, organization.id, result), 201);
     },
   );
 
@@ -1575,7 +1673,7 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
         });
       });
 
-      return c.json(await serializeDepartment(db, departmentId));
+      return c.json(await serializeDepartment(db, organization.id, departmentId));
     },
   );
 
@@ -1587,6 +1685,7 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
       throw new HTTPException(401, { message: "Autenticação obrigatória." });
     }
 
+    const organizationId = snapshot.organization.id;
     const scope = resolveEmployeeReadScope(snapshot);
     if (scope.branchIds !== null && scope.branchIds.length === 0) {
       return c.json([]);
@@ -1598,13 +1697,13 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
       .from(employees)
       .where(
         and(
-          eq(employees.organizationId, snapshot.organization.id),
+          eq(employees.organizationId, organizationId),
           scope.branchIds === null ? undefined : inArray(employees.branchId, scope.branchIds),
         ),
       );
 
     const serialized = await Promise.all(
-      records.map((record) => serializeEmployee(db, record.id)),
+      records.map((record) => serializeEmployee(db, organizationId, record.id)),
     );
 
     return c.json(
@@ -1641,7 +1740,7 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
 
     assertCanReadEmployee(snapshot, employee.branchId);
 
-    return c.json(await serializeEmployee(db, employeeId));
+    return c.json(await serializeEmployee(db, snapshot.organization.id, employeeId));
   });
 
   fastify.post(
@@ -1749,7 +1848,7 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      return c.json(await serializeEmployee(db, employee.id), 201);
+      return c.json(await serializeEmployee(db, organizationId, employee.id), 201);
     },
   );
 
@@ -1879,62 +1978,77 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
         throw error;
       }
 
-      return c.json(await serializeEmployee(db, employeeId));
+      return c.json(await serializeEmployee(db, organizationId, employeeId));
     },
   );
 
-  fastify.get("/positions", async (request, reply) => {
-    const c = createRouteContext(request, reply);
-    const snapshot = c.get("sessionSnapshot");
+  fastify.get(
+    "/positions",
+    {
+      preHandler: requireRoles("owner", "admin", "hr_admin"),
+    },
+    async (request, reply) => {
+      const c = createRouteContext(request, reply);
+      const snapshot = c.get("sessionSnapshot");
 
-    if (!snapshot?.organization) {
-      throw new HTTPException(401, { message: "Autenticação obrigatória." });
-    }
+      if (!snapshot?.organization) {
+        throw new HTTPException(401, { message: "Autenticação obrigatória." });
+      }
 
-    const db = c.get("db");
-    const records = await db
-      .select({ id: positions.id })
-      .from(positions)
-      .where(eq(positions.organizationId, snapshot.organization.id));
+      const organizationId = snapshot.organization.id;
+      const db = c.get("db");
+      const records = await db
+        .select({ id: positions.id })
+        .from(positions)
+        .where(eq(positions.organizationId, organizationId));
 
-    const serialized = await Promise.all(
-      records.map((record) => serializePosition(db, record.id)),
-    );
+      const serialized = await Promise.all(
+        records.map((record) => serializePosition(db, organizationId, record.id)),
+      );
 
-    return c.json(
-      serialized.sort((left, right) => left.title.localeCompare(right.title, "pt-BR")),
-    );
-  });
+      return c.json(
+        serialized.sort((left, right) => left.title.localeCompare(right.title, "pt-BR")),
+      );
+    },
+  );
 
-  fastify.get("/positions/:positionId", async (request, reply) => {
-    const c = createRouteContext(request, reply, {
-      param: parseOrThrow(positionIdSchema, request.params),
-    });
-    const snapshot = c.get("sessionSnapshot");
+  fastify.get(
+    "/positions/:positionId",
+    {
+      preHandler: requireRoles("owner", "admin", "hr_admin"),
+    },
+    async (request, reply) => {
+      const c = createRouteContext(request, reply, {
+        param: parseOrThrow(positionIdSchema, request.params),
+      });
+      const snapshot = c.get("sessionSnapshot");
 
-    if (!snapshot?.organization) {
-      throw new HTTPException(401, { message: "Autenticação obrigatória." });
-    }
+      if (!snapshot?.organization) {
+        throw new HTTPException(401, { message: "Autenticação obrigatória." });
+      }
 
-    const { positionId } = c.req.valid("param") as { positionId: string };
-    const db = c.get("db");
-    const [position] = await db
-      .select({ id: positions.id })
-      .from(positions)
-      .where(
-        and(
-          eq(positions.id, positionId),
-          eq(positions.organizationId, snapshot.organization.id),
-        ),
-      )
-      .limit(1);
+      const { positionId } = c.req.valid("param") as { positionId: string };
+      const db = c.get("db");
+      const [position] = await db
+        .select({ id: positions.id })
+        .from(positions)
+        .where(
+          and(
+            eq(positions.id, positionId),
+            eq(positions.organizationId, snapshot.organization.id),
+          ),
+        )
+        .limit(1);
 
-    if (!position) {
-      throw new HTTPException(404, { message: "Cargo não encontrado." });
-    }
+      if (!position) {
+        throw new HTTPException(404, { message: "Cargo não encontrado." });
+      }
 
-    return c.json(await serializePosition(db, positionId));
-  });
+      return c.json(
+        await serializePosition(db, snapshot.organization.id, positionId),
+      );
+    },
+  );
 
   fastify.post(
     "/positions",
@@ -1993,7 +2107,7 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      return c.json(await serializePosition(db, position.id), 201);
+      return c.json(await serializePosition(db, organizationId, position.id), 201);
     },
   );
 
@@ -2066,7 +2180,7 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
         })
         .where(eq(positions.id, positionId));
 
-      return c.json(await serializePosition(db, positionId));
+      return c.json(await serializePosition(db, organizationId, positionId));
     },
   );
 };

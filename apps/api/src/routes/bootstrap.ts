@@ -1,4 +1,4 @@
-import * as Sentry from "@sentry/cloudflare";
+import * as Sentry from "@sentry/node";
 import { and, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -31,17 +31,28 @@ const transientErrorCodes = new Set([
   "EAI_AGAIN",
 ]);
 
-const classifyBootstrapError = (error: unknown): { message: string; status: 400 | 500 | 502 | 503 } => {
+const classifyBootstrapError = (
+  error: unknown,
+): { message: string; status: 400 | 500 | 502 | 503 } => {
   const status =
-    error && typeof error === "object" && "status" in error && typeof error.status === "number"
+    error &&
+    typeof error === "object" &&
+    "status" in error &&
+    typeof error.status === "number"
       ? error.status
       : null;
   const code =
-    error && typeof error === "object" && "code" in error && typeof error.code === "string"
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    typeof error.code === "string"
       ? error.code
       : null;
   const name =
-    error && typeof error === "object" && "name" in error && typeof error.name === "string"
+    error &&
+    typeof error === "object" &&
+    "name" in error &&
+    typeof error.name === "string"
       ? error.name
       : null;
 
@@ -53,7 +64,8 @@ const classifyBootstrapError = (error: unknown): { message: string; status: 400 
     code === "23505"
   ) {
     return {
-      message: "Não foi possível criar o ambiente inicial com os dados informados.",
+      message:
+        "Não foi possível criar o ambiente inicial com os dados informados.",
       status: 400,
     };
   }
@@ -67,7 +79,8 @@ const classifyBootstrapError = (error: unknown): { message: string; status: 400 
 
   if (code && transientErrorCodes.has(code)) {
     return {
-      message: "Os serviços necessários para criar o ambiente estão indisponíveis no momento.",
+      message:
+        "Os serviços necessários para criar o ambiente estão indisponíveis no momento.",
       status: 503,
     };
   }
@@ -81,12 +94,16 @@ const classifyBootstrapError = (error: unknown): { message: string; status: 400 
       message.includes("network")
     ) {
       return {
-        message: "Os serviços necessários para criar o ambiente estão indisponíveis no momento.",
+        message:
+          "Os serviços necessários para criar o ambiente estão indisponíveis no momento.",
         status: 503,
       };
     }
 
-    console.warn("Unexpected TypeError while bootstrapping organization.", error);
+    console.warn(
+      "Unexpected TypeError while bootstrapping organization.",
+      error,
+    );
   }
 
   return {
@@ -127,10 +144,10 @@ bootstrapRoutes.post("/bootstrap/organization", async (c) => {
   const db = c.get("db");
 
   const [existingOrganization] = await db
-      .select({ id: organizations.id })
-      .from(organizations)
-      .where(eq(organizations.legalIdentifier, input.legalIdentifier))
-      .limit(1);
+    .select({ id: organizations.id })
+    .from(organizations)
+    .where(eq(organizations.legalIdentifier, input.legalIdentifier))
+    .limit(1);
 
   if (existingOrganization) {
     throw new HTTPException(409, {
@@ -160,7 +177,6 @@ bootstrapRoutes.post("/bootstrap/organization", async (c) => {
           }
         : null,
     );
-
   } catch (error) {
     Sentry.captureException(error);
 
@@ -185,7 +201,6 @@ bootstrapRoutes.post("/bootstrap/organization", async (c) => {
       actorMemberId: result.member.id,
       metadata: {},
     });
-
   } catch (error) {
     Sentry.captureException(error);
     throw error;

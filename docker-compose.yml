@@ -16,23 +16,29 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  api:
+  backend:
     build:
       context: .
       dockerfile: Dockerfile.dev
     depends_on:
       postgres:
         condition: service_healthy
+    env_file:
+      - ./.env
     working_dir: /workspace
     environment:
       CHOKIDAR_USEPOLLING: "true"
-      CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: postgres://postgres:postgres@postgres:5432/daton
+      PORT: "8787"
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/daton
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:3000
+      CORS_ORIGIN: http://127.0.0.1:3000
     command:
       - bash
       - -lc
       - |
-        DATABASE_URL=postgres://postgres:postgres@postgres:5432/daton pnpm db:migrate
-        pnpm --filter @daton/api exec wrangler dev src/index.ts --local --ip 0.0.0.0 --port 8787
+        pnpm db:migrate
+        pnpm --filter @daton/backend dev
     ports:
       - "8787:8787"
     volumes:
@@ -40,19 +46,21 @@ services:
       - ./packages:/workspace/packages
       - ./tsconfig.base.json:/workspace/tsconfig.base.json
       - ./pnpm-workspace.yaml:/workspace/pnpm-workspace.yaml
-      - ./apps/api/.dev.vars.docker:/workspace/apps/api/.dev.vars
+      - ./.env:/workspace/.env
 
   web:
     build:
       context: .
       dockerfile: Dockerfile.dev
     depends_on:
-      api:
+      backend:
         condition: service_started
+    env_file:
+      - ./.env
     working_dir: /workspace
     environment:
-      NEXT_PUBLIC_API_URL: http://127.0.0.1:8787
-      INTERNAL_API_URL: http://api:8787
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:3000
+      INTERNAL_API_URL: http://backend:8787
       NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
       WATCHPACK_POLLING: "true"
     command:
@@ -67,6 +75,7 @@ services:
       - ./packages:/workspace/packages
       - ./tsconfig.base.json:/workspace/tsconfig.base.json
       - ./pnpm-workspace.yaml:/workspace/pnpm-workspace.yaml
+      - ./.env:/workspace/.env
 
 volumes:
   postgres_data:

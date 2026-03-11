@@ -3,9 +3,9 @@
   "private": true,
   "packageManager": "pnpm@10.30.3",
   "scripts": {
-    "dev": "concurrently \"pnpm --filter @daton/api dev\" \"pnpm --filter @daton/web dev\"",
+    "dev": "concurrently \"pnpm --filter @daton/backend dev\" \"pnpm --filter @daton/web dev\"",
     "dev:docker": "COMPOSE_MENU=false docker compose up --build",
-    "dev:docker:logs": "docker compose logs -f api web postgres",
+    "dev:docker:logs": "docker compose logs -f backend web postgres",
     "dev:docker:down": "docker compose down",
     "dev:docker:reset": "docker compose down -v",
     "build": "pnpm -r build",
@@ -14,9 +14,6 @@
     "test": "pnpm -r test",
     "test:e2e": "playwright test",
     "format": "prettier --check .",
-    "deploy:api": "pnpm --filter @daton/api run deploy",
-    "deploy:web": "pnpm --filter @daton/web run deploy",
-    "deploy:cloudflare": "pnpm run deploy:api && pnpm run deploy:web",
     "db:generate": "pnpm --filter @daton/db db:generate",
     "db:migrate": "pnpm --filter @daton/db db:migrate",
     "db:studio": "pnpm --filter @daton/db db:studio"

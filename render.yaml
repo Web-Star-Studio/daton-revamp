@@ -1,0 +1,120 @@
+services:
+  - type: web
+    name: daton-backend
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./apps/backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health/ready
+    autoDeployTrigger: commit
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: daton-postgres
+          property: connectionString
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: COOKIE_DOMAIN
+        sync: false
+      - key: WORKOS_API_KEY
+        sync: false
+      - key: WORKOS_CLIENT_ID
+        sync: false
+      - key: WORKOS_AUTHKIT_DOMAIN
+        sync: false
+      - key: DATON_SESSION_SECRET
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_AUTH_TOKEN
+        sync: false
+      - key: SENTRY_ORG
+        sync: false
+      - key: SENTRY_PROJECT
+        sync: false
+      - key: SENTRY_ENVIRONMENT
+        sync: false
+      - key: SENTRY_RELEASE
+        sync: false
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        sync: false
+      - key: ALLOW_FICTIONAL_CNPJ
+        value: "false"
+    buildFilter:
+      paths:
+        - apps/backend/**
+        - packages/auth/**
+        - packages/contracts/**
+        - packages/db/**
+        - package.json
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - tsconfig.base.json
+  - type: web
+    name: daton-web
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./apps/web/Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    autoDeployTrigger: commit
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+      - key: INTERNAL_API_URL
+        sync: false
+      - key: INTERNAL_API_HOSTPORT
+        fromService:
+          type: web
+          name: daton-backend
+          property: hostport
+      - key: WORKOS_API_KEY
+        sync: false
+      - key: WORKOS_CLIENT_ID
+        sync: false
+      - key: WORKOS_AUTHKIT_DOMAIN
+        sync: false
+      - key: DATON_SESSION_SECRET
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: NEXT_PUBLIC_SENTRY_DSN
+        sync: false
+      - key: SENTRY_AUTH_TOKEN
+        sync: false
+      - key: SENTRY_ORG
+        sync: false
+      - key: SENTRY_PROJECT
+        sync: false
+      - key: SENTRY_ENVIRONMENT
+        sync: false
+      - key: SENTRY_RELEASE
+        sync: false
+      - key: SENTRY_TRACES_SAMPLE_RATE
+        sync: false
+    buildFilter:
+      paths:
+        - apps/web/**
+        - packages/auth/**
+        - packages/contracts/**
+        - packages/db/**
+        - package.json
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - tsconfig.base.json
+
+databases:
+  - name: daton-postgres
+    plan: basic-256mb
+    databaseName: daton
+    user: daton

@@ -6,10 +6,7 @@
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",
-    "cf:build": "opennextjs-cloudflare build",
-    "preview": "opennextjs-cloudflare preview",
-    "deploy": "node ./scripts/deploy-with-sentry.mjs",
-    "start": "next start --port 3000",
+    "start": "next start --hostname 0.0.0.0 --port 3000",
     "lint": "tsc --noEmit -p tsconfig.json",
     "typecheck": "next build",
     "test": "echo \"No tests for @daton/web\""
@@ -26,9 +23,7 @@
     "zod": "^4.1.12"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "^1.17.1",
     "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3",
-    "wrangler": "^4.71.0"
+    "@types/react-dom": "^19.2.3"
   }
 }

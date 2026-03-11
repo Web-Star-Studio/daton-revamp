@@ -6,6 +6,10 @@
     "outDir": "dist",
     "rootDir": "../../"
   },
-  "include": ["src/**/*.ts", "../../packages/*/src/**/*.ts"],
-  "exclude": ["../../packages/auth/src/auth.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "../api/src/**/*.ts",
+    "../../packages/*/src/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
 }

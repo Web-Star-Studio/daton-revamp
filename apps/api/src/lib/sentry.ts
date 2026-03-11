@@ -1,7 +1,7 @@
-import * as Sentry from "@sentry/cloudflare";
+import * as Sentry from "@sentry/node";
 
 import type { SessionSnapshot } from "./session";
-import type { AppBindings } from "../types";
+import type { AppEnvironment } from "../types";
 
 const DEFAULT_LOCAL_SAMPLE_RATE = 1;
 const DEFAULT_REMOTE_SAMPLE_RATE = 0.1;
@@ -32,16 +32,14 @@ const isLocalUrl = (value: string) => {
   }
 };
 
-export const getApiSentryEnvironment = (bindings: AppBindings["Bindings"]) =>
+export const getApiSentryEnvironment = (bindings: AppEnvironment) =>
   bindings.SENTRY_ENVIRONMENT ??
   (isLocalUrl(bindings.NEXT_PUBLIC_APP_URL) ? "development" : "production");
 
-export const getApiSentryRelease = (bindings: AppBindings["Bindings"]) =>
+export const getApiSentryRelease = (bindings: AppEnvironment) =>
   bindings.SENTRY_RELEASE;
 
-export const getApiSentryTracesSampleRate = (
-  bindings: AppBindings["Bindings"],
-) =>
+export const getApiSentryTracesSampleRate = (bindings: AppEnvironment) =>
   parseSampleRate(
     bindings.SENTRY_TRACES_SAMPLE_RATE,
     isLocalUrl(bindings.NEXT_PUBLIC_APP_URL)
@@ -50,14 +48,10 @@ export const getApiSentryTracesSampleRate = (
   );
 
 export const createApiSentryOptions = (
-  bindings: AppBindings["Bindings"],
-): Sentry.CloudflareOptions => ({
+  bindings: AppEnvironment,
+): Sentry.NodeOptions => ({
   dsn: bindings.SENTRY_DSN,
   enabled: Boolean(bindings.SENTRY_DSN),
-  defaultIntegrations: Sentry.getDefaultIntegrations({
-    dsn: bindings.SENTRY_DSN,
-    sendDefaultPii: false,
-  }).filter((integration) => integration.name !== "Hono"),
   sendDefaultPii: false,
   environment: getApiSentryEnvironment(bindings),
   release: getApiSentryRelease(bindings),

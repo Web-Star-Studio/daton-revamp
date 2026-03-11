@@ -1,13 +1,12 @@
-import * as Sentry from "@sentry/cloudflare";
-import { cors } from "hono/cors";
+import * as Sentry from "@sentry/node";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 
-import { createWorkOsClient, expandLocalOriginAliases } from "@daton/auth";
+import { createWorkOsClient } from "@daton/auth";
 import { createNodeDbServices } from "@daton/db";
 
 import { parseServerEnv } from "./env";
-import { createApiSentryOptions, setRequestSentryContext } from "./lib/sentry";
+import { setRequestSentryContext } from "./lib/sentry";
 import { withSession } from "./middleware/auth";
 import { bootstrapRoutes } from "./routes/bootstrap";
 import { branchRoutes } from "./routes/branches";
@@ -15,6 +14,13 @@ import { organizationRoutes } from "./routes/organization";
 import type { AppBindings } from "./types";
 
 const app = new Hono<AppBindings>();
+let cachedDatabaseUrl: string | null = null;
+let cachedServices: {
+  client: ReturnType<typeof createNodeDbServices>["client"];
+  db: ReturnType<typeof createNodeDbServices>["db"];
+  workos: ReturnType<typeof createWorkOsClient>;
+  env: ReturnType<typeof parseServerEnv>;
+} | null = null;
 
 const readServerEnv = (bindings: AppBindings["Bindings"]) =>
   parseServerEnv({
@@ -37,23 +43,28 @@ const readServerEnv = (bindings: AppBindings["Bindings"]) =>
 
 const getServices = (bindings: AppBindings["Bindings"]) => {
   const env = readServerEnv(bindings);
-  const databaseUrl = bindings.HYPERDRIVE?.connectionString ?? env.DATABASE_URL;
+  const databaseUrl = env.DATABASE_URL;
 
   if (!databaseUrl) {
-    throw new Error(
-      "DATABASE_URL ou binding HYPERDRIVE é obrigatório para iniciar a API.",
-    );
+    throw new Error("DATABASE_URL é obrigatório para iniciar a API.");
+  }
+
+  if (cachedServices && cachedDatabaseUrl === databaseUrl) {
+    return cachedServices;
   }
 
   const { client, db } = createNodeDbServices(databaseUrl);
   const workos = createWorkOsClient(env.workos);
 
-  return {
+  cachedDatabaseUrl = databaseUrl;
+  cachedServices = {
     client,
     db,
     env,
     workos,
   };
+
+  return cachedServices;
 };
 
 app.use("/api/*", async (c, next) => {
@@ -62,32 +73,13 @@ app.use("/api/*", async (c, next) => {
     path: c.req.path,
   });
 
-  const env = readServerEnv(c.env);
-
-  return cors({
-    origin: expandLocalOriginAliases([
-      env.CORS_ORIGIN,
-      env.NEXT_PUBLIC_APP_URL,
-    ]),
-    allowHeaders: ["Content-Type", "Authorization", "Cookie"],
-    allowMethods: ["GET", "POST", "PATCH", "OPTIONS"],
-    credentials: true,
-    exposeHeaders: ["set-cookie"],
-  })(c, next);
-});
-
-app.use("/api/*", async (c, next) => {
   const services = getServices(c.env);
 
   c.set("db", services.db);
   c.set("workos", services.workos);
   c.set("workosEnv", services.env.workos);
 
-  try {
-    await next();
-  } finally {
-    await services.client.end({ timeout: 0 });
-  }
+  await next();
 
   setRequestSentryContext({
     method: c.req.method,
@@ -146,9 +138,4 @@ app.onError((error, c) => {
   );
 });
 
-const sentryHandler = app as unknown as ExportedHandler<AppBindings["Bindings"]>;
-
-export default Sentry.withSentry(
-  (env: AppBindings["Bindings"]) => createApiSentryOptions(env),
-  sentryHandler,
-);
+export default app;

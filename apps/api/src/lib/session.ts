@@ -1,4 +1,4 @@
-import * as Sentry from "@sentry/cloudflare";
+import * as Sentry from "@sentry/node";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import {
@@ -20,7 +20,10 @@ import {
 import type { OnboardingData, Role } from "@daton/contracts";
 
 export type AppDb = ReturnType<typeof createNodeDb>;
-export type AppDbExecutor = Pick<AppDb, "delete" | "insert" | "select" | "transaction" | "update">;
+export type AppDbExecutor = Pick<
+  AppDb,
+  "delete" | "insert" | "select" | "transaction" | "update"
+>;
 
 export type SessionSnapshot = {
   user: {
@@ -59,7 +62,12 @@ export type SessionContext = {
   workosOrganizationId: string | null;
 };
 
-const GLOBAL_ACCESS_ROLES: Role[] = ["owner", "admin", "hr_admin", "document_controller"];
+const GLOBAL_ACCESS_ROLES: Role[] = [
+  "owner",
+  "admin",
+  "hr_admin",
+  "document_controller",
+];
 
 const extractBearerToken = (authorizationHeader: string | null) => {
   if (!authorizationHeader) {
@@ -79,7 +87,9 @@ const buildDetachedSessionSnapshot = async (
   claims: WorkOsAccessTokenClaims,
 ): Promise<SessionSnapshot | null> => {
   try {
-    const user = await createWorkOsClient(env).userManagement.getUser(claims.sub);
+    const user = await createWorkOsClient(env).userManagement.getUser(
+      claims.sub,
+    );
 
     return {
       user: {
@@ -126,7 +136,11 @@ export const resolveSessionContext = async (
     Sentry.captureMessage(message, "warning");
   }
 
-  const membership = await findPrimaryMembership(db, claims.sub, claims.org_id ?? null);
+  const membership = await findPrimaryMembership(
+    db,
+    claims.sub,
+    claims.org_id ?? null,
+  );
 
   if (!membership) {
     const snapshot = await buildDetachedSessionSnapshot(env, claims);
@@ -163,7 +177,10 @@ export const resolveSessionContext = async (
       organizationOnboardingStatus: organizations.onboardingStatus,
     })
     .from(organizationMembers)
-    .innerJoin(organizations, eq(organizationMembers.organizationId, organizations.id))
+    .innerJoin(
+      organizations,
+      eq(organizationMembers.organizationId, organizations.id),
+    )
     .where(eq(organizationMembers.id, membership.memberId))
     .limit(1);
 
@@ -185,12 +202,16 @@ export const resolveSessionContext = async (
       ),
     );
 
-  const effectiveRoles = [...new Set(assignments.map((assignment) => assignment.role))] as Role[];
+  const effectiveRoles = [
+    ...new Set(assignments.map((assignment) => assignment.role)),
+  ] as Role[];
   const scopedBranchIds = assignments
     .map((assignment) => assignment.branchScopeId)
     .filter((branchId): branchId is string => Boolean(branchId));
 
-  const hasGlobalAccess = effectiveRoles.some((role) => GLOBAL_ACCESS_ROLES.includes(role));
+  const hasGlobalAccess = effectiveRoles.some((role) =>
+    GLOBAL_ACCESS_ROLES.includes(role),
+  );
 
   const branchScope = hasGlobalAccess
     ? (
@@ -198,7 +219,10 @@ export const resolveSessionContext = async (
           .select({ id: branches.id })
           .from(branches)
           .where(
-            and(eq(branches.organizationId, member.organizationId), eq(branches.status, "active")),
+            and(
+              eq(branches.organizationId, member.organizationId),
+              eq(branches.status, "active"),
+            ),
           )
       ).map((branch) => branch.id)
     : scopedBranchIds;
@@ -235,7 +259,8 @@ export const resolveSessionContext = async (
       effectiveRoles,
       branchScope,
     },
-    workosOrganizationId: membership.workosOrganizationId ?? claims.org_id ?? null,
+    workosOrganizationId:
+      membership.workosOrganizationId ?? claims.org_id ?? null,
   };
 };
 
@@ -258,7 +283,12 @@ export const ensureBranchScope = async (
   const available = await db
     .select({ id: branches.id })
     .from(branches)
-    .where(and(eq(branches.organizationId, organizationId), inArray(branches.id, branchIds)));
+    .where(
+      and(
+        eq(branches.organizationId, organizationId),
+        inArray(branches.id, branchIds),
+      ),
+    );
 
   return available.map((branch) => branch.id);
 };

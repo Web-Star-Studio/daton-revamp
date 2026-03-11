@@ -34,13 +34,9 @@ WORKDIR /app
 
 COPY --from=base /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml /app/tsconfig.base.json ./
 COPY --from=base /app/node_modules ./node_modules
-COPY --from=base /app/apps/api/package.json ./apps/api/package.json
-COPY --from=base /app/apps/backend/package.json ./apps/backend/package.json
-COPY --from=base /app/packages/auth/package.json ./packages/auth/package.json
-COPY --from=base /app/packages/contracts/package.json ./packages/contracts/package.json
-COPY --from=base /app/packages/db/package.json ./packages/db/package.json
-COPY --from=base /app/apps/backend/dist ./apps/backend/dist
+COPY --from=base /app/apps ./apps
+COPY --from=base /app/packages ./packages
 
 EXPOSE 8787
 
-CMD ["node", "apps/backend/dist/apps/backend/src/server.js"]
+CMD ["pnpm", "--filter", "@daton/backend", "start"]

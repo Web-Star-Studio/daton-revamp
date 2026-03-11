@@ -1,4 +1,4 @@
-import { headers } from "next/headers";
+import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 
 import {
@@ -20,7 +20,6 @@ import {
   type SessionResponse,
 } from "@daton/contracts";
 
-import { getDatonSessionFromCookieStore, refreshDatonSessionIfNeeded } from "./auth-session";
 import { toInternalApiUrl } from "./config";
 
 const branchListSchema = z.array(branchSummarySchema);
@@ -65,25 +64,12 @@ export async function serverApiFetch<T>(
   schema: z.ZodType<T>,
   init?: ServerFetchOptions,
 ) {
-  const headerStore = await headers();
   const requestHeaders = new Headers(init?.headers);
-  const session = await refreshDatonSessionIfNeeded(
-    await getDatonSessionFromCookieStore(),
-    headerStore,
-  );
+  const { getToken } = await auth();
+  const sessionToken = await getToken();
 
-  if (!session.payload && session.error) {
-    if (init?.allowUnauthorized && session.error.clearSession) {
-      return null;
-    }
-
-    throw new ServerApiError(session.error.message, session.error.status, {
-      cause: session.error,
-    });
-  }
-
-  if (session.payload?.accessToken) {
-    requestHeaders.set("authorization", `Bearer ${session.payload.accessToken}`);
+  if (sessionToken) {
+    requestHeaders.set("authorization", `Bearer ${sessionToken}`);
   }
 
   const response = await fetch(toInternalApiUrl(path), {

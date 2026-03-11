@@ -2,9 +2,10 @@ import * as Sentry from "@sentry/node";
 import { ZodError } from "zod";
 
 import {
-  bootstrapOrganizationWithWorkOs,
-  classifyWorkOsUserFacingError,
-} from "@daton/auth";
+  memberRoleAssignments,
+  organizationMembers,
+  organizations,
+} from "@daton/db";
 import {
   createBootstrapOrganizationSchema,
   organizationMemberSummarySchema,
@@ -18,189 +19,10 @@ import {
   type AppRouteContext,
 } from "../../lib/route-context";
 import type { AppDbExecutor, SessionSnapshot } from "../../lib/session";
-import type { FastifyBaseLogger, FastifyPluginAsync } from "fastify";
-
-const transientErrorCodes = new Set([
-  "ECONNREFUSED",
-  "ECONNRESET",
-  "ENOTFOUND",
-  "ETIMEDOUT",
-  "EAI_AGAIN",
-]);
+import type { FastifyPluginAsync } from "fastify";
 
 const normalizeComparableName = (value: string | null | undefined) =>
   value?.trim().replace(/\s+/g, " ").toLocaleLowerCase() ?? null;
-
-const getErrorChain = (error: unknown) => {
-  const queue = [error];
-  const seen = new Set<unknown>();
-  const chain: Array<Record<string, unknown>> = [];
-
-  while (queue.length > 0) {
-    const current = queue.shift();
-
-    if (!current || typeof current !== "object" || seen.has(current)) {
-      continue;
-    }
-
-    seen.add(current);
-    chain.push(current as Record<string, unknown>);
-
-    if (current instanceof AggregateError) {
-      queue.push(...current.errors);
-    }
-
-    if ("cause" in current) {
-      queue.push(current.cause);
-    }
-  }
-
-  return chain;
-};
-
-const getErrorStatus = (error: unknown) => {
-  for (const candidate of getErrorChain(error)) {
-    if (typeof candidate.status === "number") {
-      return candidate.status;
-    }
-
-    if (typeof candidate.statusCode === "number") {
-      return candidate.statusCode;
-    }
-  }
-
-  return null;
-};
-
-const getErrorCode = (error: unknown) => {
-  for (const candidate of getErrorChain(error)) {
-    if (typeof candidate.code === "string") {
-      return candidate.code;
-    }
-  }
-
-  return null;
-};
-
-const getErrorName = (error: unknown) => {
-  for (const candidate of getErrorChain(error)) {
-    if (typeof candidate.name === "string") {
-      return candidate.name;
-    }
-  }
-
-  return null;
-};
-
-const isLegalIdentifierConflict = (error: unknown) => {
-  return getErrorChain(error).some((candidate) => {
-    if (typeof candidate.code !== "string" || candidate.code !== "23505") {
-      return false;
-    }
-
-    const values = [
-      typeof candidate.constraint === "string" ? candidate.constraint : null,
-      typeof candidate.constraint_name === "string"
-        ? candidate.constraint_name
-        : null,
-      typeof candidate.column === "string" ? candidate.column : null,
-      typeof candidate.column_name === "string" ? candidate.column_name : null,
-      typeof candidate.detail === "string" ? candidate.detail : null,
-      typeof candidate.message === "string" ? candidate.message : null,
-    ]
-      .filter((value): value is string => Boolean(value))
-      .map((value) => value.toLowerCase());
-
-    return values.some(
-      (value) =>
-        value.includes("organizations_legal_identifier_idx") ||
-        value.includes("legal_identifier"),
-    );
-  });
-};
-
-export const classifyBootstrapError = (
-  error: unknown,
-  logger: Pick<FastifyBaseLogger, "warn">,
-): { message: string; status: 400 | 409 | 500 | 502 | 503 } => {
-  const status = getErrorStatus(error);
-  const code = getErrorCode(error);
-  const name = getErrorName(error);
-
-  if (isLegalIdentifierConflict(error)) {
-    return {
-      message: "Já existe uma organização com este CNPJ.",
-      status: 409,
-    };
-  }
-
-  const classifiedWorkOsError = classifyWorkOsUserFacingError(
-    error,
-    "bootstrap",
-  );
-
-  if (classifiedWorkOsError.isExpected) {
-    return {
-      message: classifiedWorkOsError.message,
-      status: 400,
-    };
-  }
-
-  if (
-    status === 400 ||
-    status === 409 ||
-    name === "BadRequestException" ||
-    name === "ConflictException" ||
-    code === "23505"
-  ) {
-    return {
-      message:
-        "Não foi possível criar o ambiente inicial com os dados informados.",
-      status: 400,
-    };
-  }
-
-  if (status !== null && status >= 500) {
-    return {
-      message: "Não foi possível criar o ambiente inicial agora.",
-      status: 502,
-    };
-  }
-
-  if (code && transientErrorCodes.has(code)) {
-    return {
-      message:
-        "Os serviços necessários para criar o ambiente estão indisponíveis no momento.",
-      status: 503,
-    };
-  }
-
-  if (name === "TypeError") {
-    const message = error instanceof Error ? error.message.toLowerCase() : "";
-
-    if (
-      message.includes("failed to fetch") ||
-      message.includes("fetch") ||
-      message.includes("network")
-    ) {
-      return {
-        message:
-          "Os serviços necessários para criar o ambiente estão indisponíveis no momento.",
-        status: 503,
-      };
-    }
-
-    logger.warn(
-      { err: error },
-      "Unexpected TypeError while bootstrapping organization.",
-    );
-  }
-
-  return {
-    message: "Erro interno ao criar o ambiente inicial.",
-    status: 500,
-  };
-};
 
 const parseBootstrapInput = async (c: AppRouteContext) => {
   try {
@@ -243,59 +65,124 @@ const assertAuthenticatedBootstrapIdentity = (
   }
 };
 
+const bootstrapOrganization = async (
+  db: AppDbExecutor,
+  input: BootstrapInput,
+  snapshot: SessionSnapshot,
+) => {
+  return db.transaction(async (tx) => {
+    const [organization] = await tx
+      .insert(organizations)
+      .values({
+        legalName: input.legalName,
+        tradeName: input.tradeName?.trim() || null,
+        legalIdentifier: input.legalIdentifier,
+      })
+      .returning();
+
+    if (!organization) {
+      throw new Error("Failed to create local organization.");
+    }
+
+    const [member] = await tx
+      .insert(organizationMembers)
+      .values({
+        organizationId: organization.id,
+        userId: snapshot.user.id,
+        fullName: snapshot.user.name?.trim() || input.adminFullName.trim(),
+        email: snapshot.user.email,
+      })
+      .returning();
+
+    if (!member) {
+      throw new Error("Failed to create local organization member.");
+    }
+
+    await tx.insert(memberRoleAssignments).values([
+      {
+        organizationId: organization.id,
+        memberId: member.id,
+        role: "owner",
+      },
+      {
+        organizationId: organization.id,
+        memberId: member.id,
+        role: "admin",
+      },
+    ]);
+
+    return {
+      member,
+      organization,
+    };
+  });
+};
+
+export const classifyBootstrapError = (error: unknown) => {
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "23505"
+  ) {
+    const details = [
+      "constraint" in error ? error.constraint : null,
+      "detail" in error ? error.detail : null,
+      "message" in error ? error.message : null,
+    ]
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.toLowerCase());
+
+    if (
+      details.some(
+        (value) =>
+          value.includes("organizations_legal_identifier_idx")
+          || value.includes("legal_identifier"),
+      )
+    ) {
+      return {
+        message: "Já existe uma organização com este CNPJ.",
+        status: 409 as const,
+      };
+    }
+  }
+
+  return {
+    message: "Erro interno ao criar o ambiente inicial.",
+    status: 500 as const,
+  };
+};
+
 const bootstrapPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.post("/bootstrap/organization", async (request, reply) => {
     const c = createRouteContext(request, reply);
     const sessionContext = c.get("sessionContext");
     const snapshot = c.get("sessionSnapshot");
 
-    if (sessionContext?.membershipCount && sessionContext.membershipCount > 0) {
+    if (!sessionContext || !snapshot) {
+      throw new HTTPException(401, {
+        message: "Autenticação obrigatória.",
+      });
+    }
+
+    if (sessionContext.membershipCount > 0) {
       throw new HTTPException(409, {
         message: "Este usuário já pertence a uma organização.",
       });
     }
 
     const input = await parseBootstrapInput(c);
-    const db = c.get("db");
-
-    if (!snapshot && !input.password) {
-      throw new HTTPException(400, {
-        message: "A senha inicial é obrigatória para criar o primeiro acesso.",
-      });
-    }
-
-    if (snapshot) {
-      assertAuthenticatedBootstrapIdentity(snapshot, input);
-    }
+    assertAuthenticatedBootstrapIdentity(snapshot, input);
 
     let result;
 
     try {
-      result = await bootstrapOrganizationWithWorkOs(
-        db,
-        c.get("workosEnv"),
-        input,
-        snapshot
-          ? {
-              id: snapshot.user.id,
-              email: snapshot.user.email,
-              firstName: null,
-              lastName: null,
-            }
-          : null,
-      );
+      result = await bootstrapOrganization(c.get("db") as AppDbExecutor, input, snapshot);
     } catch (error) {
-      const classified = classifyBootstrapError(error, request.log);
+      const classified = classifyBootstrapError(error);
 
       if (classified.status >= 500) {
-        Sentry.withScope((scope) => {
-          scope.setTag(
-            "auth.error_kind",
-            classifyWorkOsUserFacingError(error, "bootstrap").kind,
-          );
-          scope.setTag("auth.flow", "bootstrap");
-          Sentry.captureException(error);
-        });
+        Sentry.captureException(error);
       }
 
       if (error instanceof HTTPException) {
@@ -308,12 +195,12 @@ const bootstrapPlugin: FastifyPluginAsync = async (fastify) => {
     }
 
     try {
-      await recordAuditEvent(db as AppDbExecutor, {
+      await recordAuditEvent(c.get("db") as AppDbExecutor, {
         action: "organization.bootstrap",
         entityType: "organization",
         entityId: result.organization.id,
         organizationId: result.organization.id,
-        actorUserId: result.workosUser.id,
+        actorUserId: snapshot.user.id,
         actorMemberId: result.member.id,
         metadata: {},
       });
@@ -324,7 +211,7 @@ const bootstrapPlugin: FastifyPluginAsync = async (fastify) => {
           err: error,
           action: "organization.bootstrap",
           organizationId: result.organization.id,
-          actorUserId: result.workosUser.id,
+          actorUserId: snapshot.user.id,
         },
         "Failed to record bootstrap audit event.",
       );
@@ -333,10 +220,10 @@ const bootstrapPlugin: FastifyPluginAsync = async (fastify) => {
     return c.json({
       member: organizationMemberSummarySchema.parse({
         id: result.member.id,
-        userId: result.workosUser.id,
+        userId: result.member.userId,
         fullName: result.member.fullName,
         email: result.member.email,
-        status: "active",
+        status: result.member.status,
       }),
       organization: organizationSummarySchema.parse({
         id: result.organization.id,
@@ -351,25 +238,6 @@ const bootstrapPlugin: FastifyPluginAsync = async (fastify) => {
         onboardingData: { company_profile: null },
         onboardingStatus: "pending",
       }),
-      workosOrganizationId: result.organization.workosOrganizationId,
-      workosUserId: result.workosUser.id,
-    });
-  });
-
-  fastify.get("/auth/session-context", async (request, reply) => {
-    const c = createRouteContext(request, reply);
-    const sessionContext = c.get("sessionContext");
-
-    if (!sessionContext) {
-      throw new HTTPException(401, {
-        message: "Autenticação obrigatória.",
-      });
-    }
-
-    return c.json({
-      membershipCount: sessionContext.membershipCount,
-      session: sessionContext.snapshot,
-      workosOrganizationId: sessionContext.workosOrganizationId,
     });
   });
 };

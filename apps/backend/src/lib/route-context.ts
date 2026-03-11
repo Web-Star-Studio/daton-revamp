@@ -9,9 +9,8 @@ type ValidatedInput = {
 
 export type AppRouteContext = {
   env: AppEnvironment;
+  get(key: "clerk"): FastifyRequest["clerk"];
   get(key: "db"): AppDb;
-  get(key: "workos"): FastifyRequest["workos"];
-  get(key: "workosEnv"): FastifyRequest["workosEnv"];
   get(key: "sessionContext"): SessionContext | null;
   get(key: "sessionSnapshot"): SessionSnapshot | null;
   req: {
@@ -26,21 +25,18 @@ export const createRouteContext = (
   reply: FastifyReply,
   validated: ValidatedInput = {},
 ): AppRouteContext => {
+  function get(key: "clerk"): FastifyRequest["clerk"];
   function get(key: "db"): AppDb;
-  function get(key: "workos"): FastifyRequest["workos"];
-  function get(key: "workosEnv"): FastifyRequest["workosEnv"];
   function get(key: "sessionContext"): SessionContext | null;
   function get(key: "sessionSnapshot"): SessionSnapshot | null;
   function get(
-    key: "db" | "workos" | "workosEnv" | "sessionContext" | "sessionSnapshot",
+    key: "clerk" | "db" | "sessionContext" | "sessionSnapshot",
   ) {
     switch (key) {
+      case "clerk":
+        return request.clerk;
       case "db":
         return request.db;
-      case "workos":
-        return request.workos;
-      case "workosEnv":
-        return request.workosEnv;
       case "sessionContext":
         return request.sessionContext;
       case "sessionSnapshot":

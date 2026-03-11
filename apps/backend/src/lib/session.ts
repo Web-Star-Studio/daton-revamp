@@ -1,15 +1,8 @@
 import * as Sentry from "@sentry/node";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import type { ClerkClient, User } from "@clerk/backend";
+import { verifyToken } from "@clerk/backend";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 
-import {
-  countActiveMemberships,
-  createWorkOsClient,
-  findPrimaryMembership,
-  formatWorkOsUserName,
-  verifyWorkOsAccessToken,
-  type WorkOsAccessTokenClaims,
-  type WorkOsManagementEnv,
-} from "@daton/auth";
 import {
   branches,
   createNodeDb,
@@ -56,10 +49,17 @@ export type SessionSnapshot = {
 };
 
 export type SessionContext = {
-  claims: WorkOsAccessTokenClaims;
+  claims: {
+    sid: string | null;
+    sub: string;
+  };
   membershipCount: number;
   snapshot: SessionSnapshot;
-  workosOrganizationId: string | null;
+};
+
+type LocalMembershipRecord = {
+  memberId: string;
+  organizationId: string;
 };
 
 const GLOBAL_ACCESS_ROLES: Role[] = [
@@ -82,20 +82,92 @@ const extractBearerToken = (authorizationHeader: string | null) => {
   return value;
 };
 
+const normalizeName = (user: Pick<User, "firstName" | "lastName">) => {
+  const name = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+  return name || null;
+};
+
+const getPrimaryEmail = (user: User) =>
+  user.emailAddresses.find((email) => email.id === user.primaryEmailAddressId)?.emailAddress
+  ?? user.emailAddresses[0]?.emailAddress
+  ?? null;
+
+const countActiveMemberships = async (db: AppDb, userId: string) => {
+  const [result] = await db
+    .select({
+      count: sql<number>`count(${organizationMembers.id})`,
+    })
+    .from(organizationMembers)
+    .where(
+      and(
+        eq(organizationMembers.userId, userId),
+        eq(organizationMembers.status, "active"),
+      ),
+    );
+
+  return Number(result?.count ?? 0);
+};
+
+const claimMembershipsByEmail = async (
+  db: AppDb,
+  input: {
+    email: string;
+    userId: string;
+  },
+) => {
+  await db
+    .update(organizationMembers)
+    .set({
+      userId: input.userId,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(organizationMembers.status, "active"),
+        sql`lower(${organizationMembers.email}) = lower(${input.email})`,
+      ),
+    );
+};
+
+const findPrimaryMembership = async (
+  db: AppDb,
+  userId: string,
+): Promise<LocalMembershipRecord | null> => {
+  const [membership] = await db
+    .select({
+      memberId: organizationMembers.id,
+      organizationId: organizationMembers.organizationId,
+    })
+    .from(organizationMembers)
+    .where(
+      and(
+        eq(organizationMembers.userId, userId),
+        eq(organizationMembers.status, "active"),
+      ),
+    )
+    .orderBy(asc(organizationMembers.createdAt))
+    .limit(1);
+
+  return membership ?? null;
+};
+
 const buildDetachedSessionSnapshot = async (
-  env: WorkOsManagementEnv,
-  claims: WorkOsAccessTokenClaims,
+  clerk: ClerkClient,
+  userId: string,
 ): Promise<SessionSnapshot | null> => {
   try {
-    const user = await createWorkOsClient(env).userManagement.getUser(
-      claims.sub,
-    );
+    const user = await clerk.users.getUser(userId);
+    const email = getPrimaryEmail(user);
+
+    if (!email) {
+      return null;
+    }
 
     return {
       user: {
         id: user.id,
-        email: user.email,
-        name: formatWorkOsUserName(user),
+        email,
+        name: normalizeName(user),
       },
       organization: null,
       member: null,
@@ -103,7 +175,17 @@ const buildDetachedSessionSnapshot = async (
       branchScope: [],
     };
   } catch (error) {
-    console.error("Fetching detached WorkOS session user failed.", error);
+    console.error("Fetching detached Clerk session user failed.", error);
+    Sentry.captureException(error);
+    return null;
+  }
+};
+
+const getClerkUserForClaim = async (clerk: ClerkClient, userId: string) => {
+  try {
+    return await clerk.users.getUser(userId);
+  } catch (error) {
+    console.error("Fetching Clerk user for membership claim failed.", error);
     Sentry.captureException(error);
     return null;
   }
@@ -111,7 +193,8 @@ const buildDetachedSessionSnapshot = async (
 
 export const resolveSessionContext = async (
   db: AppDb,
-  env: WorkOsManagementEnv,
+  clerk: ClerkClient,
+  secretKey: string,
   authorizationHeader: string | null,
 ): Promise<SessionContext | null> => {
   const accessToken = extractBearerToken(authorizationHeader);
@@ -120,40 +203,53 @@ export const resolveSessionContext = async (
     return null;
   }
 
-  let claims: WorkOsAccessTokenClaims;
+  let claims: Awaited<ReturnType<typeof verifyToken>>;
 
   try {
-    claims = await verifyWorkOsAccessToken(accessToken, env);
+    claims = await verifyToken(accessToken, {
+      secretKey,
+    });
   } catch {
     return null;
   }
 
-  const membershipCount = await countActiveMemberships(db, claims.sub);
+  const userId = typeof claims.sub === "string" ? claims.sub : null;
 
-  if (membershipCount > 1 && !claims.org_id) {
-    const message = `Resolved WorkOS session without org_id for multi-membership user ${claims.sub}.`;
-    console.warn(message);
-    Sentry.captureMessage(message, "warning");
+  if (!userId) {
+    return null;
   }
 
-  const membership = await findPrimaryMembership(
-    db,
-    claims.sub,
-    claims.org_id ?? null,
-  );
+  let membershipCount = await countActiveMemberships(db, userId);
+
+  if (membershipCount === 0) {
+    const user = await getClerkUserForClaim(clerk, userId);
+    const email = user ? getPrimaryEmail(user) : null;
+
+    if (email) {
+      await claimMembershipsByEmail(db, {
+        email,
+        userId,
+      });
+      membershipCount = await countActiveMemberships(db, userId);
+    }
+  }
+
+  const membership = await findPrimaryMembership(db, userId);
 
   if (!membership) {
-    const snapshot = await buildDetachedSessionSnapshot(env, claims);
+    const snapshot = await buildDetachedSessionSnapshot(clerk, userId);
 
     if (!snapshot) {
       return null;
     }
 
     return {
-      claims,
+      claims: {
+        sid: typeof claims.sid === "string" ? claims.sid : null,
+        sub: userId,
+      },
       membershipCount,
       snapshot,
-      workosOrganizationId: claims.org_id ?? null,
     };
   }
 
@@ -228,11 +324,14 @@ export const resolveSessionContext = async (
     : scopedBranchIds;
 
   return {
-    claims,
+    claims: {
+      sid: typeof claims.sid === "string" ? claims.sid : null,
+      sub: userId,
+    },
     membershipCount,
     snapshot: {
       user: {
-        id: claims.sub,
+        id: userId,
         email: member.email,
         name: member.fullName,
       },
@@ -259,17 +358,23 @@ export const resolveSessionContext = async (
       effectiveRoles,
       branchScope,
     },
-    workosOrganizationId:
-      membership.workosOrganizationId ?? claims.org_id ?? null,
   };
 };
 
 export const getSessionSnapshot = async (
   db: AppDb,
-  env: WorkOsManagementEnv,
+  clerk: ClerkClient,
+  secretKey: string,
   authorizationHeader: string | null,
 ): Promise<SessionSnapshot | null> =>
-  (await resolveSessionContext(db, env, authorizationHeader))?.snapshot ?? null;
+  (
+    await resolveSessionContext(
+      db,
+      clerk,
+      secretKey,
+      authorizationHeader,
+    )
+  )?.snapshot ?? null;
 
 export const ensureBranchScope = async (
   db: AppDb,

@@ -4,8 +4,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const LOCAL_DATABASE_HOSTS = new Set(["127.0.0.1", "localhost"]);
-
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const repoRootEnvPath = resolve(currentDir, "../../../.env");
 
@@ -57,23 +55,12 @@ const parseEnvFile = (envFileContents: string) => {
   return parsed;
 };
 
-const isLocalDatabaseUrl = (value: string) => {
-  try {
-    const hostname = new URL(value).hostname;
-    return LOCAL_DATABASE_HOSTS.has(hostname);
-  } catch {
-    return false;
-  }
-};
-
 export const loadLocalDevelopmentEnv = (
   environment: NodeJS.ProcessEnv = process.env,
 ) => {
   const resolvedEnvironment: NodeJS.ProcessEnv = {
     ...environment,
   };
-
-  const hasExplicitDatabaseUrl = Boolean(environment.DATABASE_URL);
 
   if (!existsSync(repoRootEnvPath)) {
     return resolvedEnvironment;
@@ -85,19 +72,6 @@ export const loadLocalDevelopmentEnv = (
     if (resolvedEnvironment[key] === undefined) {
       resolvedEnvironment[key] = value;
     }
-  }
-
-  if (
-    !hasExplicitDatabaseUrl
-    && resolvedEnvironment.DATABASE_URL
-    && !isLocalDatabaseUrl(resolvedEnvironment.DATABASE_URL)
-  ) {
-    throw new Error(
-      [
-        "Local development must default to a local Postgres DATABASE_URL.",
-        "Update the repo root .env to 127.0.0.1/localhost or pass DATABASE_URL explicitly for a one-off remote target.",
-      ].join(" "),
-    );
   }
 
   return resolvedEnvironment;

@@ -57,6 +57,13 @@
       "when": 1773259200000,
       "tag": "0007_strange_unassignment_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1773268153301,
+      "tag": "0008_clerk_neon_cutover",
+      "breakpoints": true
     }
   ]
 }

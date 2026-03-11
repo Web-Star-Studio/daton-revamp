@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { parseWorkOsManagementEnv } from "@daton/auth";
 
 import { loadLocalDevelopmentEnv } from "@daton/db";
 
@@ -16,9 +15,7 @@ const runtimeEnvSchema = z.object({
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
   DATABASE_URL: z.string().trim().min(1),
-  WORKOS_API_KEY: z.string().trim().min(1),
-  WORKOS_CLIENT_ID: z.string().trim().min(1),
-  WORKOS_AUTHKIT_DOMAIN: optionalTrimmedString,
+  CLERK_SECRET_KEY: z.string().trim().min(1),
   NEXT_PUBLIC_APP_URL: z.url(),
   NEXT_PUBLIC_API_URL: z.url(),
   CORS_ORIGIN: z.url(),
@@ -40,10 +37,3 @@ export const parseRuntimeEnv = (
 ): RuntimeEnv => runtimeEnvSchema.parse(loadLocalDevelopmentEnv(environment));
 
 export const toApiEnvironment = (env: RuntimeEnv): AppEnvironment => env;
-
-export const toWorkOsManagementEnv = (env: AppEnvironment) =>
-  parseWorkOsManagementEnv({
-    WORKOS_API_KEY: env.WORKOS_API_KEY,
-    WORKOS_CLIENT_ID: env.WORKOS_CLIENT_ID,
-    WORKOS_AUTHKIT_DOMAIN: env.WORKOS_AUTHKIT_DOMAIN,
-  });

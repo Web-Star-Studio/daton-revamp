@@ -11,15 +11,11 @@ import sessionPlugin from "./session";
 const apiPlugin: FastifyPluginAsync = async (fastify) => {
   const prefix = "/api/v1";
 
+  fastify.decorateRequest(
+    "clerk",
+    null as unknown as import("@clerk/backend").ClerkClient,
+  );
   fastify.decorateRequest("db", null as unknown as import("../../lib/session").AppDb);
-  fastify.decorateRequest(
-    "workos",
-    null as unknown as ReturnType<typeof import("@daton/auth").createWorkOsClient>,
-  );
-  fastify.decorateRequest(
-    "workosEnv",
-    null as unknown as ReturnType<typeof import("../../config/env").toWorkOsManagementEnv>,
-  );
   fastify.decorateRequest("sessionContext", null);
   fastify.decorateRequest("sessionSnapshot", null);
 
@@ -28,14 +24,14 @@ const apiPlugin: FastifyPluginAsync = async (fastify) => {
     const authorizationHeader = request.headers.authorization;
     const sessionContext = await resolveSessionContext(
       services.db,
-      services.workosEnv,
+      services.clerk,
+      fastify.apiEnv.CLERK_SECRET_KEY,
       typeof authorizationHeader === "string" ? authorizationHeader : null,
     );
     const snapshot = sessionContext?.snapshot ?? null;
 
+    request.clerk = services.clerk;
     request.db = services.db;
-    request.workos = services.workos;
-    request.workosEnv = services.workosEnv;
     request.sessionContext = sessionContext;
     request.sessionSnapshot = snapshot;
     setSessionSentryContext(snapshot as SessionSnapshot | null);

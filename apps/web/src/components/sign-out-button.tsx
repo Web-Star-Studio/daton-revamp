@@ -1,11 +1,11 @@
 "use client";
 
+import { useClerk } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 
-import { signOut } from "@/lib/api";
-
 export function SignOutButton() {
+  const { signOut } = useClerk();
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
@@ -21,8 +21,8 @@ export function SignOutButton() {
 
           startTransition(async () => {
             try {
-              const result = await signOut();
-              router.replace(result.redirectTo);
+              await signOut({ redirectUrl: "/auth?mode=sign-in" });
+              router.replace("/auth?mode=sign-in");
               router.refresh();
             } catch (signOutError) {
               setError(signOutError instanceof Error ? signOutError.message : "Não foi possível sair.");

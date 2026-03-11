@@ -10,7 +10,7 @@ Daton is an organization/HR management platform. pnpm monorepo deploying to Rend
 
 - **apps/backend** — Fastify REST API (port 8787)
 - **apps/web** — Next.js 16 frontend (port 3000)
-- **packages/auth** — WorkOS integration, JOSE JWT session encryption, session snapshot resolution
+- **packages/auth** — Shared auth-adjacent utilities (currently origin helpers)
 - **packages/db** — Drizzle ORM schemas (PostgreSQL), migrations, and client
 - **packages/contracts** — Shared Zod schemas, enums (roles, statuses), and TypeScript types
 
@@ -50,7 +50,7 @@ Entry point: `apps/backend/src/server.ts`. Fastify plugins are registered from `
 - `/api/v1/branches/*` and `/api/v1/members` — Branch and member APIs
 - `/api/v1/*` — Session, organization, notifications, departments, employees, positions
 
-Request context setup resolves DB services, WorkOS access, and `SessionSnapshot` before `/api/v1/*` handlers execute. Auth middleware: `requireSession` (validates session) and `requireRoles` (checks RBAC). All state changes are logged via `recordAuditEvent()`. Errors use `AppHttpError` with status codes. Validation errors are translated to Portuguese.
+Request context setup resolves DB services, Clerk auth context, and `SessionSnapshot` before `/api/v1/*` handlers execute. Auth middleware: `requireSession` (validates session) and `requireRoles` (checks RBAC). All state changes are logged via `recordAuditEvent()`. Errors use `AppHttpError` with status codes. Validation errors are translated to Portuguese.
 
 ### Web (Next.js 16)
 
@@ -58,7 +58,7 @@ Server-side API calls use `lib/server-api.ts` (server actions) and `lib/api-prox
 
 ### Auth
 
-WorkOS-based SSO authentication. Sessions are JOSE-encrypted JWTs stored in a `daton-session` cookie (7-day default lifetime). Cross-subdomain cookies via `COOKIE_DOMAIN` env var. The `packages/auth` module handles WorkOS organization/user bootstrapping, access token verification via JWKS, and session snapshot resolution (user, organization, member, effective roles, branch scope). Key functions: `bootstrapOrganizationWithWorkOs()`, `verifyWorkOsAccessToken()`, `createWorkOsClient()`.
+Clerk handles authentication and identity. The web app uses Clerk’s custom flow APIs and middleware, while the backend verifies Clerk bearer tokens and then resolves the local Daton session snapshot (user, organization, member, effective roles, branch scope) from Postgres. Daton remains the source of truth for organizations, memberships, and RBAC.
 
 ### Database
 
@@ -73,9 +73,8 @@ The current production target is Render (configured in `render.yaml`). The backe
 ## Environment Setup
 
 Copy `.env.example` to `.env` at the repo root. Key variables:
-- `DATABASE_URL` — Local default: `postgres://postgres:postgres@127.0.0.1:5432/daton`
-- `DATON_SESSION_SECRET` — Min 32 characters, used for JOSE session encryption
-- `WORKOS_API_KEY` / `WORKOS_CLIENT_ID` — WorkOS credentials for auth
+- `DATABASE_URL` — Default database target (recommended: dedicated Neon database or branch)
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` / `CLERK_SECRET_KEY` — Clerk credentials for custom auth flows and backend verification
 - `NEXT_PUBLIC_APP_URL` / `NEXT_PUBLIC_API_URL` — Public URLs for web and API
 - `INTERNAL_API_URL` — Server-side API URL (can differ from public)
 - `ALLOW_FICTIONAL_CNPJ` — Set `true` for dev/test to bypass CNPJ validation

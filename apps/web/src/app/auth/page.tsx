@@ -2,13 +2,8 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 
 import { BootstrapForm } from "@/components/bootstrap-form";
+import { CreateAccessForm } from "@/components/create-access-form";
 import { SignInForm } from "@/components/sign-in-form";
-import { VerifyEmailForm } from "@/components/verify-email-form";
-import { getPendingEmailVerificationFromCookieStore } from "@/lib/auth-session";
-import {
-  getVerifyEmailCopy,
-  type VerificationRequiredAuthResult,
-} from "@/lib/auth-flow";
 import { getServerSession } from "@/lib/server-api";
 
 type AuthPageProps = {
@@ -17,10 +12,10 @@ type AuthPageProps = {
   }>;
 };
 
-type AuthMode = "sign-in" | "sign-up" | "verify-email";
+type AuthMode = "sign-in" | "sign-up" | "create-account";
 
 const authModes: Record<
-  Exclude<AuthMode, "verify-email">,
+  AuthMode,
   {
     description: string;
     kicker: string;
@@ -40,22 +35,26 @@ const authModes: Record<
     description:
       "Isso estabelece a base identitária da qual o restante do Daton depende: entidade legal, acesso inicial e a base de governança que depois pode se expandir para múltiplas unidades.",
   },
+  "create-account": {
+    kicker: "Recuperar acesso",
+    title:
+      "Crie uma nova credencial Clerk para recuperar o acesso local já existente no Daton.",
+    description:
+      "Use o mesmo e-mail corporativo já vinculado à sua organização. No primeiro acesso, o Daton reivindicará os vínculos locais por e-mail e reconstituirá sua sessão.",
+  },
 };
 
 const getAuthMode = (value?: string): AuthMode =>
   value === "sign-up"
     ? "sign-up"
-    : value === "verify-email"
-      ? "verify-email"
+    : value === "create-account"
+      ? "create-account"
       : "sign-in";
 
 export default async function AuthPage({ searchParams }: AuthPageProps) {
   const resolvedSearchParams = await searchParams;
   const mode = getAuthMode(resolvedSearchParams.mode);
   const session = await getServerSession();
-  const pendingVerification = mode === "verify-email"
-    ? await getPendingEmailVerificationFromCookieStore()
-    : null;
 
   if (session?.organization) {
     redirect(
@@ -69,32 +68,12 @@ export default async function AuthPage({ searchParams }: AuthPageProps) {
     redirect("/auth?mode=sign-up");
   }
 
-  const verificationState =
-    mode === "verify-email" && pendingVerification
-      ? {
-          email: pendingVerification.email,
-          flow: pendingVerification.flow,
-          message: getVerifyEmailCopy(pendingVerification.flow).inlineMessage,
-          status: "verification_required" as const,
-        }
-      : null;
-
-  const content = verificationState
-    ? getVerifyEmailCopy(verificationState.flow)
-    : mode === "verify-email"
-      ? {
-          description:
-            "Para concluir a autenticação, confirme o código enviado para o seu e-mail de trabalho.",
-          kicker: "Verificar e-mail",
-          title:
-            "Confirme o código de verificação para concluir a entrada no Daton.",
-        }
-      : authModes[mode];
+  const content = authModes[mode];
 
   return (
     <main className="auth-shell auth-shell--fullbleed">
       <section className={`auth-panel auth-panel--immersive${
-        mode === "sign-up" ? " auth-panel--wide" : ""
+        mode !== "sign-in" ? " auth-panel--wide" : ""
       }`}
       >
         <div className="auth-panel__lead auth-panel__lead--visual">
@@ -118,7 +97,7 @@ export default async function AuthPage({ searchParams }: AuthPageProps) {
           ) : mode === "sign-up" ? (
             <BootstrapForm session={session} />
           ) : (
-            <VerifyEmailForm pendingVerification={verificationState} />
+            <CreateAccessForm />
           )}
         </div>
       </section>

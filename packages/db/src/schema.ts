@@ -44,7 +44,6 @@ export const organizations = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     legalName: text("legal_name").notNull(),
     tradeName: text("trade_name"),
-    workosOrganizationId: text("workos_organization_id"),
     legalIdentifier: text("legal_identifier").notNull(),
     openingDate: date("opening_date"),
     taxRegime: text("tax_regime"),
@@ -63,9 +62,6 @@ export const organizations = pgTable(
   },
   (table) => ({
     legalIdentifierIdx: uniqueIndex("organizations_legal_identifier_idx").on(table.legalIdentifier),
-    workosOrganizationIdx: uniqueIndex("organizations_workos_organization_id_idx").on(
-      table.workosOrganizationId,
-    ),
   }),
 );
 

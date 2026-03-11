@@ -13,10 +13,7 @@
   },
   "dependencies": {
     "@daton/db": "workspace:*",
-    "@workos-inc/node": "^8.8.0",
     "drizzle-orm": "0.45.1",
-    "jose": "^6.1.0",
-    "@noble/hashes": "^2.0.1",
     "zod": "^4.1.12"
   }
 }

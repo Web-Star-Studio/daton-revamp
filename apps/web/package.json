@@ -8,11 +8,11 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3000",
     "lint": "tsc --noEmit -p tsconfig.json",
-    "typecheck": "next build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "echo \"No tests for @daton/web\""
   },
   "dependencies": {
-    "@daton/auth": "workspace:*",
+    "@clerk/nextjs": "7.0.4",
     "@daton/contracts": "workspace:*",
     "@sentry/nextjs": "^10.42.0",
     "clsx": "^2.1.1",

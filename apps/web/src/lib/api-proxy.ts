@@ -1,11 +1,6 @@
+import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
-import {
-  clearDatonSessionCookie,
-  getDatonSessionFromCookieStore,
-  refreshDatonSessionIfNeeded,
-  setDatonSessionCookie,
-} from "./auth-session";
 import { toInternalApiUrl } from "./config";
 
 const hopByHopHeaders = new Set([
@@ -75,8 +70,8 @@ export async function proxyApiRequest(request: Request) {
   const parsedUrl = new URL(request.url);
   const upstreamUrl = toInternalApiUrl(`${parsedUrl.pathname}${parsedUrl.search}`);
   const upstreamHeaders = copyHeaders(request.headers);
-  const currentSession = await getDatonSessionFromCookieStore();
-  const refreshedSession = await refreshDatonSessionIfNeeded(currentSession, request.headers);
+  const { getToken } = await auth();
+  const sessionToken = await getToken();
   const clientIp =
     request.headers.get("cf-connecting-ip") ??
     request.headers.get("x-real-ip") ??
@@ -87,25 +82,10 @@ export async function proxyApiRequest(request: Request) {
       .find(Boolean) ??
     null;
 
-  if (!refreshedSession.payload && refreshedSession.error) {
-    const response = NextResponse.json(
-      {
-        message: refreshedSession.error.message,
-      },
-      { status: refreshedSession.error.status },
-    );
-
-    if (currentSession && refreshedSession.error.clearSession) {
-      clearDatonSessionCookie(response);
-    }
-
-    return response;
-  }
-
   upstreamHeaders.delete("cookie");
 
-  if (refreshedSession.payload?.accessToken) {
-    upstreamHeaders.set("authorization", `Bearer ${refreshedSession.payload.accessToken}`);
+  if (sessionToken) {
+    upstreamHeaders.set("authorization", `Bearer ${sessionToken}`);
   } else {
     upstreamHeaders.delete("authorization");
   }
@@ -165,14 +145,8 @@ export async function proxyApiRequest(request: Request) {
     responseHeaders.append("set-cookie", setCookie);
   }
 
-  const response = new NextResponse(upstreamResponse.body, {
+  return new NextResponse(upstreamResponse.body, {
     status: upstreamResponse.status,
     headers: responseHeaders,
   });
-
-  if (refreshedSession.payload && refreshedSession.rotated) {
-    await setDatonSessionCookie(response, refreshedSession.payload);
-  }
-
-  return response;
 }

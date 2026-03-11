@@ -11,9 +11,7 @@ services:
       - key: PORT
         value: "10000"
       - key: DATABASE_URL
-        fromDatabase:
-          name: daton-postgres
-          property: connectionString
+        sync: false
       - key: NEXT_PUBLIC_APP_URL
         sync: false
       - key: NEXT_PUBLIC_API_URL
@@ -22,13 +20,7 @@ services:
         sync: false
       - key: COOKIE_DOMAIN
         sync: false
-      - key: WORKOS_API_KEY
-        sync: false
-      - key: WORKOS_CLIENT_ID
-        sync: false
-      - key: WORKOS_AUTHKIT_DOMAIN
-        sync: false
-      - key: DATON_SESSION_SECRET
+      - key: CLERK_SECRET_KEY
         sync: false
       - key: SENTRY_DSN
         sync: false
@@ -78,13 +70,9 @@ services:
           type: web
           name: daton-backend
           property: hostport
-      - key: WORKOS_API_KEY
+      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
         sync: false
-      - key: WORKOS_CLIENT_ID
-        sync: false
-      - key: WORKOS_AUTHKIT_DOMAIN
-        sync: false
-      - key: DATON_SESSION_SECRET
+      - key: CLERK_SECRET_KEY
         sync: false
       - key: SENTRY_DSN
         sync: false
@@ -112,9 +100,3 @@ services:
         - pnpm-lock.yaml
         - pnpm-workspace.yaml
         - tsconfig.base.json
-
-databases:
-  - name: daton-postgres
-    plan: basic-256mb
-    databaseName: daton
-    user: daton

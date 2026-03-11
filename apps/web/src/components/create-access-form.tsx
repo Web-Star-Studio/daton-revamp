@@ -4,24 +4,28 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useState } from "react";
 
-import { useSignIn } from "@clerk/nextjs";
+import { useSignUp } from "@clerk/nextjs";
 
-import { getAuthErrorMessage, resolvePostAuthRedirect } from "@/lib/auth-client";
+import {
+  getAuthErrorMessage,
+  resolvePostAuthRedirect,
+  splitFullName,
+} from "@/lib/auth-client";
 
 type VerificationStep = {
   email: string;
 };
 
-export function SignInForm() {
+export function CreateAccessForm() {
   const router = useRouter();
-  const { signIn } = useSignIn();
+  const { signUp } = useSignUp();
   const [error, setError] = useState<string | null>(null);
   const [verificationStep, setVerificationStep] = useState<VerificationStep | null>(
     null,
   );
 
-  const finalizeSignIn = async () => {
-    const result = await signIn.finalize();
+  const finalizeSignUp = async () => {
+    const result = await signUp.finalize();
 
     if (result.error) {
       throw result.error;
@@ -44,21 +48,21 @@ export function SignInForm() {
 
         startTransition(async () => {
           try {
-            const result = await signIn.emailCode.verifyCode({ code });
+            const result = await signUp.verifications.verifyEmailCode({ code });
 
             if (result.error) {
               throw result.error;
             }
 
-            if (signIn.status !== "complete") {
-              throw new Error("Não foi possível concluir a entrada no momento.");
+            if (signUp.status !== "complete") {
+              throw new Error("A verificação não foi concluída.");
             }
 
-            await finalizeSignIn();
-          } catch (signInError) {
+            await finalizeSignUp();
+          } catch (signUpError) {
             setError(
               getAuthErrorMessage(
-                signInError,
+                signUpError,
                 "Não foi possível validar o código enviado por e-mail.",
               ),
             );
@@ -79,12 +83,12 @@ export function SignInForm() {
         />
       </div>
       <p className="form-note">
-        Enviamos um código para <strong>{verificationStep.email}</strong> para
-        confirmar este dispositivo.
+        Confirmamos o vínculo pelo e-mail <strong>{verificationStep.email}</strong>.
+        Após a validação, o Daton tentará recuperar os acessos existentes por e-mail.
       </p>
       {error ? <p className="form-error">{error}</p> : null}
       <button className="button" type="submit">
-        Verificar e entrar
+        Verificar e continuar
       </button>
       <button
         className="button button--ghost"
@@ -92,15 +96,11 @@ export function SignInForm() {
         onClick={() => {
           setVerificationStep(null);
           setError(null);
-          void signIn.reset();
+          void signUp.reset();
         }}
       >
         Voltar
       </button>
-      <p className="form-note">
-        Precisa recuperar o acesso?{" "}
-        <Link href="/auth?mode=create-account">Criar nova credencial</Link>
-      </p>
     </form>
   ) : (
     <form
@@ -108,44 +108,38 @@ export function SignInForm() {
       onSubmit={(event) => {
         event.preventDefault();
         const formData = new FormData(event.currentTarget);
+        const fullName = String(formData.get("fullName") ?? "").trim();
         const email = String(formData.get("email") ?? "").trim();
         const password = String(formData.get("password") ?? "");
+        const { firstName, lastName } = splitFullName(fullName);
 
         setError(null);
 
         startTransition(async () => {
           try {
-            const result = await signIn.password({
-              identifier: email,
+            const createResult = await signUp.password({
+              emailAddress: email,
               password,
+              firstName,
+              lastName,
             });
 
-            if (result.error) {
-              throw result.error;
+            if (createResult.error) {
+              throw createResult.error;
             }
 
-            if (signIn.status === "complete") {
-              await finalizeSignIn();
-              return;
+            const sendCodeResult = await signUp.verifications.sendEmailCode();
+
+            if (sendCodeResult.error) {
+              throw sendCodeResult.error;
             }
 
-            if (signIn.status === "needs_client_trust") {
-              const sendCodeResult = await signIn.emailCode.sendCode();
-
-              if (sendCodeResult.error) {
-                throw sendCodeResult.error;
-              }
-
-              setVerificationStep({ email });
-              return;
-            }
-
-            throw new Error("Não foi possível concluir a autenticação agora.");
-          } catch (signInError) {
+            setVerificationStep({ email });
+          } catch (signUpError) {
             setError(
               getAuthErrorMessage(
-                signInError,
-                "Não foi possível autenticar com as credenciais informadas.",
+                signUpError,
+                "Não foi possível preparar a nova credencial agora.",
               ),
             );
           }
@@ -153,30 +147,33 @@ export function SignInForm() {
       }}
     >
       <div className="field">
+        <label htmlFor="fullName">Nome completo</label>
+        <input autoComplete="name" id="fullName" name="fullName" required type="text" />
+      </div>
+      <div className="field">
         <label htmlFor="email">E-mail de trabalho</label>
         <input autoComplete="email" id="email" name="email" required type="email" />
       </div>
       <div className="field">
-        <label htmlFor="password">Senha</label>
+        <label htmlFor="password">Nova senha</label>
         <input
-          autoComplete="current-password"
+          autoComplete="new-password"
           id="password"
           name="password"
           required
           type="password"
         />
       </div>
+      <p className="form-note">
+        Use este fluxo se o vínculo da sua organização já existe na base do Daton e
+        você só precisa recriar a credencial.
+      </p>
       {error ? <p className="form-error">{error}</p> : null}
       <button className="button" type="submit">
-        Entrar no Daton
+        Criar credencial
       </button>
       <p className="form-note">
-        Ainda não tem acesso?{" "}
-        <Link href="/auth?mode=create-account">Criar credencial</Link>
-      </p>
-      <p className="form-note">
-        Vai estruturar uma nova organização?{" "}
-        <Link href="/auth?mode=sign-up">Criar ambiente</Link>
+        Já possui credencial? <Link href="/auth?mode=sign-in">Entrar</Link>
       </p>
     </form>
   );

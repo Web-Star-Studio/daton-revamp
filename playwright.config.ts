@@ -21,7 +21,7 @@ export default defineConfig({
     },
     {
       command:
-        "bash -lc 'WORKOS_API_KEY=sk_test_test-api-key WORKOS_CLIENT_ID=client_test_123456789 DATON_SESSION_SECRET=test-session-secret-1234567890 NEXT_PUBLIC_API_URL=http://127.0.0.1:8787 NEXT_PUBLIC_APP_URL=http://127.0.0.1:3000 INTERNAL_API_URL=http://127.0.0.1:8787 pnpm --filter @daton/web dev'",
+        "bash -lc 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_placeholder} CLERK_SECRET_KEY=${CLERK_SECRET_KEY:-sk_test_placeholder} NEXT_PUBLIC_API_URL=http://127.0.0.1:8787 NEXT_PUBLIC_APP_URL=http://127.0.0.1:3000 INTERNAL_API_URL=http://127.0.0.1:8787 pnpm --filter @daton/web dev'",
       url: "http://127.0.0.1:3000",
       reuseExistingServer: true,
       timeout: 120_000,

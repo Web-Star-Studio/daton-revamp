@@ -1,5 +1,5 @@
 import "fastify";
-import type { WorkOsManagementEnv, createWorkOsClient } from "@daton/auth";
+import type { ClerkClient } from "@clerk/backend";
 
 import type { AppEnvironment } from "../config/env";
 import type { AppDb, SessionContext, SessionSnapshot } from "./session";
@@ -10,9 +10,8 @@ declare module "fastify" {
   }
 
   interface FastifyRequest {
+    clerk: ClerkClient;
     db: AppDb;
-    workos: ReturnType<typeof createWorkOsClient>;
-    workosEnv: WorkOsManagementEnv;
     sessionContext: SessionContext | null;
     sessionSnapshot: SessionSnapshot | null;
   }

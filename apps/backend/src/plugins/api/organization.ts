@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { ZodError } from "zod";
 
 import {
@@ -9,6 +9,7 @@ import {
   createUpdateDepartmentSchema,
   createUpdateEmployeeSchema,
   createUpdatePositionSchema,
+  departmentSummarySchema,
   departmentIdSchema,
   employeeIdSchema,
   employeeSummarySchema,
@@ -21,7 +22,10 @@ import {
   type CreateDepartmentInput,
   type CreateEmployeeInput,
   type CreatePositionInput,
+  type DepartmentSummary,
+  type EmployeeSummary,
   type NotificationLevel,
+  type PositionSummary,
   type UpdateDepartmentInput,
   type UpdateEmployeeInput,
   type UpdateOrganizationInput,
@@ -596,12 +600,19 @@ const ensureDepartmentBranches = async (
   return availableBranches;
 };
 
-const serializeDepartment = async (
+const uniqueValues = <T>(values: Array<T | null | undefined>) =>
+  [...new Set(values.filter((value): value is T => value !== null && value !== undefined))];
+
+const serializeDepartmentsBatch = async (
   db: AppDbExecutor,
   organizationId: string,
-  departmentId: string,
-) => {
-  const [record] = await db
+  departmentIds: string[],
+): Promise<DepartmentSummary[]> => {
+  if (departmentIds.length === 0) {
+    return [];
+  }
+
+  const records = await db
     .select({
       id: departments.id,
       organizationId: departments.organizationId,
@@ -621,37 +632,34 @@ const serializeDepartment = async (
     .from(departments)
     .where(
       and(
-        eq(departments.id, departmentId),
         eq(departments.organizationId, organizationId),
+        inArray(departments.id, departmentIds),
       ),
-    )
-    .limit(1);
+    );
 
-  if (!record) {
-    throw new HTTPException(404, {
-      message: "Departamento não encontrado.",
-    });
-  }
+  const managerMemberIds = uniqueValues(records.map((record) => record.managerMemberId));
+  const managerEmployeeIds = uniqueValues(records.map((record) => record.managerEmployeeId));
+  const parentDepartmentIds = uniqueValues(records.map((record) => record.parentDepartmentId));
 
-  const [legacyManager, employeeManager, parentDepartment, employeeRows, subDepartmentRows] =
+  const [legacyManagers, employeeManagers, parentDepartments, employeeCounts, subDepartments, assignments] =
     await Promise.all([
-      record.managerMemberId
-        ? db
+      managerMemberIds.length === 0
+        ? Promise.resolve([])
+        : db
             .select({
+              id: organizationMembers.id,
               fullName: organizationMembers.fullName,
             })
             .from(organizationMembers)
             .where(
               and(
-                eq(organizationMembers.id, record.managerMemberId),
                 eq(organizationMembers.organizationId, organizationId),
+                inArray(organizationMembers.id, managerMemberIds),
               ),
-            )
-            .limit(1)
-            .then((rows) => rows[0] ?? null)
-      : Promise.resolve(null),
-      record.managerEmployeeId
-        ? db
+            ),
+      managerEmployeeIds.length === 0
+        ? Promise.resolve([])
+        : db
             .select({
               id: employees.id,
               fullName: employees.fullName,
@@ -659,15 +667,13 @@ const serializeDepartment = async (
             .from(employees)
             .where(
               and(
-                eq(employees.id, record.managerEmployeeId),
                 eq(employees.organizationId, organizationId),
+                inArray(employees.id, managerEmployeeIds),
               ),
-            )
-            .limit(1)
-            .then((rows) => rows[0] ?? null)
-      : Promise.resolve(null),
-      record.parentDepartmentId
-        ? db
+            ),
+      parentDepartmentIds.length === 0
+        ? Promise.resolve([])
+        : db
             .select({
               id: departments.id,
               name: departments.name,
@@ -675,88 +681,159 @@ const serializeDepartment = async (
             .from(departments)
             .where(
               and(
-                eq(departments.id, record.parentDepartmentId),
                 eq(departments.organizationId, organizationId),
+                inArray(departments.id, parentDepartmentIds),
               ),
-            )
-            .limit(1)
-            .then((rows) => rows[0] ?? null)
-      : Promise.resolve(null),
+            ),
       db
-        .select({ id: employees.id })
+        .select({
+          departmentId: employees.departmentId,
+          count: sql<number>`count(${employees.id})`,
+        })
         .from(employees)
         .where(
           and(
-            eq(employees.departmentId, departmentId),
             eq(employees.organizationId, organizationId),
+            inArray(employees.departmentId, departmentIds),
           ),
-        ),
+        )
+        .groupBy(employees.departmentId),
       db
         .select({
           id: departments.id,
           name: departments.name,
+          parentDepartmentId: departments.parentDepartmentId,
         })
         .from(departments)
         .where(
           and(
-            eq(departments.parentDepartmentId, departmentId),
             eq(departments.organizationId, organizationId),
+            inArray(departments.parentDepartmentId, departmentIds),
+          ),
+        ),
+      db
+        .select({
+          departmentId: departmentBranchAssignments.departmentId,
+          branchId: departmentBranchAssignments.branchId,
+          branchName: branches.name,
+        })
+        .from(departmentBranchAssignments)
+        .innerJoin(branches, eq(departmentBranchAssignments.branchId, branches.id))
+        .where(
+          and(
+            eq(departmentBranchAssignments.organizationId, organizationId),
+            eq(branches.organizationId, organizationId),
+            inArray(departmentBranchAssignments.departmentId, departmentIds),
           ),
         ),
     ]);
 
-  const assignments = await db
-    .select({
-      branchId: departmentBranchAssignments.branchId,
-      branchName: branches.name,
-    })
-    .from(departmentBranchAssignments)
-    .innerJoin(branches, eq(departmentBranchAssignments.branchId, branches.id))
-    .where(
-      and(
-        eq(departmentBranchAssignments.departmentId, departmentId),
-        eq(departmentBranchAssignments.organizationId, organizationId),
-        eq(branches.organizationId, organizationId),
-      ),
-    );
-
-  const sortedAssignments = [...assignments].sort((left, right) =>
-    left.branchName.localeCompare(right.branchName, "pt-BR"),
+  const managerMemberMap = new Map(
+    legacyManagers.map((manager) => [manager.id, { fullName: manager.fullName }]),
   );
+  const managerEmployeeMap = new Map(employeeManagers.map((manager) => [manager.id, manager]));
+  const parentDepartmentMap = new Map(parentDepartments.map((department) => [department.id, department]));
+  const employeeCountMap = new Map(
+    employeeCounts.map((entry) => [entry.departmentId, Number(entry.count ?? 0)]),
+  );
+  const subDepartmentMap = new Map<string, Array<{ id: string; name: string }>>();
 
-  return {
-    id: record.id,
-    organizationId: record.organizationId,
-    name: record.name,
-    description: record.description ?? null,
-    parentDepartmentId: record.parentDepartmentId ?? null,
-    managerEmployeeId: record.managerEmployeeId ?? null,
-    budget: parseStoredNumber(record.budget),
-    costCenter: record.costCenter ?? null,
-    code: record.code,
-    status: record.status,
-    managerMemberId: record.managerMemberId ?? null,
-    managerName: employeeManager?.fullName ?? legacyManager?.fullName ?? null,
-    notes: record.notes ?? null,
-    branchIds: sortedAssignments.map((assignment) => assignment.branchId),
-    branchNames: sortedAssignments.map((assignment) => assignment.branchName),
-    createdAt: serializeTimestampValue(record.createdAt),
-    updatedAt: serializeTimestampValue(record.updatedAt),
-    manager: employeeManager,
-    parentDepartment,
-    subDepartments: subDepartmentRows.sort((left, right) =>
-      left.name.localeCompare(right.name, "pt-BR"),
-    ),
-    employeeCount: employeeRows.length,
-  };
+  for (const subDepartment of subDepartments) {
+    if (!subDepartment.parentDepartmentId) {
+      continue;
+    }
+
+    const siblings = subDepartmentMap.get(subDepartment.parentDepartmentId) ?? [];
+    siblings.push({
+      id: subDepartment.id,
+      name: subDepartment.name,
+    });
+    subDepartmentMap.set(subDepartment.parentDepartmentId, siblings);
+  }
+
+  const assignmentMap = new Map<string, Array<{ branchId: string; branchName: string }>>();
+
+  for (const assignment of assignments) {
+    const departmentAssignments = assignmentMap.get(assignment.departmentId) ?? [];
+    departmentAssignments.push({
+      branchId: assignment.branchId,
+      branchName: assignment.branchName,
+    });
+    assignmentMap.set(assignment.departmentId, departmentAssignments);
+  }
+
+  const recordMap = new Map(records.map((record) => [record.id, record]));
+
+  return departmentIds.map((departmentId) => {
+    const record = recordMap.get(departmentId);
+
+    if (!record) {
+      throw new HTTPException(404, {
+        message: "Departamento não encontrado.",
+      });
+    }
+
+    const legacyManager = record.managerMemberId
+      ? managerMemberMap.get(record.managerMemberId) ?? null
+      : null;
+    const employeeManager = record.managerEmployeeId
+      ? managerEmployeeMap.get(record.managerEmployeeId) ?? null
+      : null;
+    const parentDepartment = record.parentDepartmentId
+      ? parentDepartmentMap.get(record.parentDepartmentId) ?? null
+      : null;
+    const sortedAssignments = [
+      ...(assignmentMap.get(record.id) ?? []),
+    ].sort((left, right) => left.branchName.localeCompare(right.branchName, "pt-BR"));
+    const sortedSubDepartments = [
+      ...(subDepartmentMap.get(record.id) ?? []),
+    ].sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));
+
+    return departmentSummarySchema.parse({
+      id: record.id,
+      organizationId: record.organizationId,
+      name: record.name,
+      description: record.description ?? null,
+      parentDepartmentId: record.parentDepartmentId ?? null,
+      managerEmployeeId: record.managerEmployeeId ?? null,
+      budget: parseStoredNumber(record.budget),
+      costCenter: record.costCenter ?? null,
+      code: record.code,
+      status: record.status,
+      managerMemberId: record.managerMemberId ?? null,
+      managerName: employeeManager?.fullName ?? legacyManager?.fullName ?? null,
+      notes: record.notes ?? null,
+      branchIds: sortedAssignments.map((assignment) => assignment.branchId),
+      branchNames: sortedAssignments.map((assignment) => assignment.branchName),
+      createdAt: serializeTimestampValue(record.createdAt),
+      updatedAt: serializeTimestampValue(record.updatedAt),
+      manager: employeeManager,
+      parentDepartment,
+      subDepartments: sortedSubDepartments,
+      employeeCount: employeeCountMap.get(record.id) ?? 0,
+    });
+  });
 };
 
-const serializePosition = async (
+const serializeDepartment = async (
   db: AppDbExecutor,
   organizationId: string,
-  positionId: string,
+  departmentId: string,
 ) => {
-  const [record] = await db
+  const [record] = await serializeDepartmentsBatch(db, organizationId, [departmentId]);
+  return record;
+};
+
+const serializePositionsBatch = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  positionIds: string[],
+): Promise<PositionSummary[]> => {
+  if (positionIds.length === 0) {
+    return [];
+  }
+
+  const records = await db
     .select({
       id: positions.id,
       organizationId: positions.organizationId,
@@ -777,21 +854,18 @@ const serializePosition = async (
     .from(positions)
     .where(
       and(
-        eq(positions.id, positionId),
         eq(positions.organizationId, organizationId),
+        inArray(positions.id, positionIds),
       ),
-    )
-    .limit(1);
+    );
 
-  if (!record) {
-    throw new HTTPException(404, {
-      message: "Cargo não encontrado.",
-    });
-  }
+  const departmentIds = uniqueValues(records.map((record) => record.departmentId));
+  const reportsToPositionIds = uniqueValues(records.map((record) => record.reportsToPositionId));
 
-  const [department, reportsToPosition] = await Promise.all([
-    record.departmentId
-      ? db
+  const [relatedDepartments, reportsToPositions] = await Promise.all([
+    departmentIds.length === 0
+      ? Promise.resolve([])
+      : db
           .select({
             id: departments.id,
             name: departments.name,
@@ -799,15 +873,13 @@ const serializePosition = async (
           .from(departments)
           .where(
             and(
-              eq(departments.id, record.departmentId),
               eq(departments.organizationId, organizationId),
+              inArray(departments.id, departmentIds),
             ),
-          )
-          .limit(1)
-          .then((rows) => rows[0] ?? null)
-      : Promise.resolve(null),
-    record.reportsToPositionId
-      ? db
+          ),
+    reportsToPositionIds.length === 0
+      ? Promise.resolve([])
+      : db
           .select({
             id: positions.id,
             title: positions.title,
@@ -815,44 +887,72 @@ const serializePosition = async (
           .from(positions)
           .where(
             and(
-              eq(positions.id, record.reportsToPositionId),
               eq(positions.organizationId, organizationId),
+              inArray(positions.id, reportsToPositionIds),
             ),
-          )
-          .limit(1)
-          .then((rows) => rows[0] ?? null)
-      : Promise.resolve(null),
+          ),
   ]);
 
-  return positionSummarySchema.parse({
-    id: record.id,
-    organizationId: record.organizationId,
-    departmentId: record.departmentId ?? null,
-    title: record.title,
-    description: record.description ?? null,
-    level: record.level ?? null,
-    salaryRangeMin: parseStoredNumber(record.salaryRangeMin),
-    salaryRangeMax: parseStoredNumber(record.salaryRangeMax),
-    requirements: normalizeStringArray((record.requirements as string[] | null) ?? []),
-    responsibilities: normalizeStringArray(
-      (record.responsibilities as string[] | null) ?? [],
-    ),
-    reportsToPositionId: record.reportsToPositionId ?? null,
-    requiredEducationLevel: record.requiredEducationLevel ?? null,
-    requiredExperienceYears: record.requiredExperienceYears ?? null,
-    createdAt: serializeTimestampValue(record.createdAt),
-    updatedAt: serializeTimestampValue(record.updatedAt),
-    department,
-    reportsToPosition,
+  const departmentMap = new Map(relatedDepartments.map((department) => [department.id, department]));
+  const reportsToPositionMap = new Map(
+    reportsToPositions.map((position) => [position.id, position]),
+  );
+  const recordMap = new Map(records.map((record) => [record.id, record]));
+
+  return positionIds.map((positionId) => {
+    const record = recordMap.get(positionId);
+
+    if (!record) {
+      throw new HTTPException(404, {
+        message: "Cargo não encontrado.",
+      });
+    }
+
+    return positionSummarySchema.parse({
+      id: record.id,
+      organizationId: record.organizationId,
+      departmentId: record.departmentId ?? null,
+      title: record.title,
+      description: record.description ?? null,
+      level: record.level ?? null,
+      salaryRangeMin: parseStoredNumber(record.salaryRangeMin),
+      salaryRangeMax: parseStoredNumber(record.salaryRangeMax),
+      requirements: normalizeStringArray((record.requirements as string[] | null) ?? []),
+      responsibilities: normalizeStringArray(
+        (record.responsibilities as string[] | null) ?? [],
+      ),
+      reportsToPositionId: record.reportsToPositionId ?? null,
+      requiredEducationLevel: record.requiredEducationLevel ?? null,
+      requiredExperienceYears: record.requiredExperienceYears ?? null,
+      createdAt: serializeTimestampValue(record.createdAt),
+      updatedAt: serializeTimestampValue(record.updatedAt),
+      department: record.departmentId ? departmentMap.get(record.departmentId) ?? null : null,
+      reportsToPosition: record.reportsToPositionId
+        ? reportsToPositionMap.get(record.reportsToPositionId) ?? null
+        : null,
+    });
   });
 };
 
-const serializeEmployee = async (
+const serializePosition = async (
   db: AppDbExecutor,
   organizationId: string,
-  employeeId: string,
+  positionId: string,
 ) => {
-  const [record] = await db
+  const [record] = await serializePositionsBatch(db, organizationId, [positionId]);
+  return record;
+};
+
+const serializeEmployeesBatch = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  employeeIds: string[],
+): Promise<EmployeeSummary[]> => {
+  if (employeeIds.length === 0) {
+    return [];
+  }
+
+  const records = await db
     .select({
       id: employees.id,
       organizationId: employees.organizationId,
@@ -882,21 +982,20 @@ const serializeEmployee = async (
     .from(employees)
     .where(
       and(
-        eq(employees.id, employeeId),
         eq(employees.organizationId, organizationId),
+        inArray(employees.id, employeeIds),
       ),
-    )
-    .limit(1);
+    );
 
-  if (!record) {
-    throw new HTTPException(404, {
-      message: "Colaborador não encontrado.",
-    });
-  }
+  const departmentIds = uniqueValues(records.map((record) => record.departmentId));
+  const positionIds = uniqueValues(records.map((record) => record.positionId));
+  const managerIds = uniqueValues(records.map((record) => record.managerId));
+  const branchIds = uniqueValues(records.map((record) => record.branchId));
 
-  const [department, position, manager, branch] = await Promise.all([
-    record.departmentId
-      ? db
+  const [relatedDepartments, relatedPositions, managers, relatedBranches] = await Promise.all([
+    departmentIds.length === 0
+      ? Promise.resolve([])
+      : db
           .select({
             id: departments.id,
             name: departments.name,
@@ -904,15 +1003,13 @@ const serializeEmployee = async (
           .from(departments)
           .where(
             and(
-              eq(departments.id, record.departmentId),
               eq(departments.organizationId, organizationId),
+              inArray(departments.id, departmentIds),
             ),
-          )
-          .limit(1)
-          .then((rows) => rows[0] ?? null)
-      : Promise.resolve(null),
-    record.positionId
-      ? db
+          ),
+    positionIds.length === 0
+      ? Promise.resolve([])
+      : db
           .select({
             id: positions.id,
             title: positions.title,
@@ -920,15 +1017,13 @@ const serializeEmployee = async (
           .from(positions)
           .where(
             and(
-              eq(positions.id, record.positionId),
               eq(positions.organizationId, organizationId),
+              inArray(positions.id, positionIds),
             ),
-          )
-          .limit(1)
-          .then((rows) => rows[0] ?? null)
-      : Promise.resolve(null),
-    record.managerId
-      ? db
+          ),
+    managerIds.length === 0
+      ? Promise.resolve([])
+      : db
           .select({
             id: employees.id,
             fullName: employees.fullName,
@@ -936,15 +1031,13 @@ const serializeEmployee = async (
           .from(employees)
           .where(
             and(
-              eq(employees.id, record.managerId),
               eq(employees.organizationId, organizationId),
+              inArray(employees.id, managerIds),
             ),
-          )
-          .limit(1)
-          .then((rows) => rows[0] ?? null)
-      : Promise.resolve(null),
-    record.branchId
-      ? db
+          ),
+    branchIds.length === 0
+      ? Promise.resolve([])
+      : db
           .select({
             id: branches.id,
             name: branches.name,
@@ -952,47 +1045,76 @@ const serializeEmployee = async (
           .from(branches)
           .where(
             and(
-              eq(branches.id, record.branchId),
               eq(branches.organizationId, organizationId),
+              inArray(branches.id, branchIds),
             ),
-          )
-          .limit(1)
-          .then((rows) => rows[0] ?? null)
-      : Promise.resolve(null),
+          ),
   ]);
 
-  return employeeSummarySchema.parse({
-    id: record.id,
-    organizationId: record.organizationId,
-    employeeCode: record.employeeCode ?? null,
-    cpf: record.cpf ?? null,
-    fullName: record.fullName,
-    email: record.email ?? null,
-    phone: record.phone ?? null,
-    departmentId: record.departmentId ?? null,
-    departmentName: department?.name ?? null,
-    positionId: record.positionId ?? null,
-    positionName: position?.title ?? null,
-    hireDate: serializeDateValue(record.hireDate),
-    birthDate: serializeDateValue(record.birthDate),
-    gender: record.gender ?? null,
-    ethnicity: record.ethnicity ?? null,
-    educationLevel: record.educationLevel ?? null,
-    salary: parseStoredNumber(record.salary),
-    employmentType: record.employmentType,
-    status: record.status,
-    managerId: record.managerId ?? null,
-    location: record.location ?? null,
-    branchId: record.branchId ?? null,
-    terminationDate: serializeDateValue(record.terminationDate),
-    notes: record.notes ?? null,
-    createdAt: serializeTimestampValue(record.createdAt),
-    updatedAt: serializeTimestampValue(record.updatedAt),
-    branch,
-    department,
-    position,
-    manager,
+  const departmentMap = new Map(relatedDepartments.map((department) => [department.id, department]));
+  const positionMap = new Map(relatedPositions.map((position) => [position.id, position]));
+  const managerMap = new Map(managers.map((manager) => [manager.id, manager]));
+  const branchMap = new Map(relatedBranches.map((branch) => [branch.id, branch]));
+  const recordMap = new Map(records.map((record) => [record.id, record]));
+
+  return employeeIds.map((employeeId) => {
+    const record = recordMap.get(employeeId);
+
+    if (!record) {
+      throw new HTTPException(404, {
+        message: "Colaborador não encontrado.",
+      });
+    }
+
+    const department = record.departmentId
+      ? departmentMap.get(record.departmentId) ?? null
+      : null;
+    const position = record.positionId ? positionMap.get(record.positionId) ?? null : null;
+    const manager = record.managerId ? managerMap.get(record.managerId) ?? null : null;
+    const branch = record.branchId ? branchMap.get(record.branchId) ?? null : null;
+
+    return employeeSummarySchema.parse({
+      id: record.id,
+      organizationId: record.organizationId,
+      employeeCode: record.employeeCode ?? null,
+      cpf: record.cpf ?? null,
+      fullName: record.fullName,
+      email: record.email ?? null,
+      phone: record.phone ?? null,
+      departmentId: record.departmentId ?? null,
+      departmentName: department?.name ?? null,
+      positionId: record.positionId ?? null,
+      positionName: position?.title ?? null,
+      hireDate: serializeDateValue(record.hireDate),
+      birthDate: serializeDateValue(record.birthDate),
+      gender: record.gender ?? null,
+      ethnicity: record.ethnicity ?? null,
+      educationLevel: record.educationLevel ?? null,
+      salary: parseStoredNumber(record.salary),
+      employmentType: record.employmentType,
+      status: record.status,
+      managerId: record.managerId ?? null,
+      location: record.location ?? null,
+      branchId: record.branchId ?? null,
+      terminationDate: serializeDateValue(record.terminationDate),
+      notes: record.notes ?? null,
+      createdAt: serializeTimestampValue(record.createdAt),
+      updatedAt: serializeTimestampValue(record.updatedAt),
+      branch,
+      department,
+      position,
+      manager,
+    });
   });
+};
+
+const serializeEmployee = async (
+  db: AppDbExecutor,
+  organizationId: string,
+  employeeId: string,
+) => {
+  const [record] = await serializeEmployeesBatch(db, organizationId, [employeeId]);
+  return record;
 };
 
 const listOrganizationMembers = async (
@@ -1437,8 +1559,10 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
         .from(departments)
         .where(eq(departments.organizationId, organizationId));
 
-      const serialized = await Promise.all(
-        records.map((record) => serializeDepartment(db, organizationId, record.id)),
+      const serialized = await serializeDepartmentsBatch(
+        db,
+        organizationId,
+        records.map((record) => record.id),
       );
 
       return c.json(
@@ -1702,8 +1826,10 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
         ),
       );
 
-    const serialized = await Promise.all(
-      records.map((record) => serializeEmployee(db, organizationId, record.id)),
+    const serialized = await serializeEmployeesBatch(
+      db,
+      organizationId,
+      records.map((record) => record.id),
     );
 
     return c.json(
@@ -2002,8 +2128,10 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
         .from(positions)
         .where(eq(positions.organizationId, organizationId));
 
-      const serialized = await Promise.all(
-        records.map((record) => serializePosition(db, organizationId, record.id)),
+      const serialized = await serializePositionsBatch(
+        db,
+        organizationId,
+        records.map((record) => record.id),
       );
 
       return c.json(

@@ -4,18 +4,22 @@ import { z } from "zod";
 
 import {
   branchSummarySchema,
+  collaboratorsWorkspaceResponseSchema,
   employeeListSchema,
   employeeSummarySchema,
   departmentListSchema,
   positionListSchema,
   positionSummarySchema,
   notificationListSchema,
+  organizationWorkspaceResponseSchema,
   organizationDirectoryMemberListSchema,
   sessionResponseSchema,
   type BranchSummary,
+  type CollaboratorsWorkspaceResponse,
   type EmployeeSummary,
   type DepartmentSummary,
   type NotificationSummary,
+  type OrganizationWorkspaceResponse,
   type OrganizationDirectoryMember,
   type PositionSummary,
   type SessionResponse,
@@ -134,6 +138,34 @@ export const getServerNotifications = cache(async () =>
   }),
 );
 
+function buildWorkspaceUrl(
+  path: string,
+  includes: string[],
+) {
+  const searchParams = new URLSearchParams();
+
+  if (includes.length > 0) {
+    searchParams.set("include", includes.join(","));
+  }
+
+  const query = searchParams.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+export const getServerOrganizationWorkspace = async (includes: string[]) =>
+  serverApiFetch(
+    buildWorkspaceUrl("/api/v1/workspace/organization", includes),
+    organizationWorkspaceResponseSchema,
+    { allowUnauthorized: false },
+  );
+
+export const getServerCollaboratorsWorkspace = async (includes: string[]) =>
+  serverApiFetch(
+    buildWorkspaceUrl("/api/v1/workspace/collaborators", includes),
+    collaboratorsWorkspaceResponseSchema,
+    { allowUnauthorized: false },
+  );
+
 export type ServerSession = SessionResponse;
 export type ServerBranch = BranchSummary;
 export type ServerOrganizationMember = OrganizationDirectoryMember;
@@ -141,3 +173,5 @@ export type ServerDepartment = DepartmentSummary;
 export type ServerEmployee = EmployeeSummary;
 export type ServerPosition = PositionSummary;
 export type ServerNotification = NotificationSummary;
+export type ServerOrganizationWorkspace = OrganizationWorkspaceResponse;
+export type ServerCollaboratorsWorkspace = CollaboratorsWorkspaceResponse;

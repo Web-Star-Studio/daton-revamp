@@ -2,6 +2,8 @@ import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { ZodError } from "zod";
 
 import {
+  collaboratorsWorkspaceResponseSchema,
+  organizationWorkspaceResponseSchema,
   roles,
   createCreateDepartmentSchema,
   createCreateEmployeeSchema,
@@ -51,6 +53,8 @@ import { createRouteContext, type AppRouteContext } from "../../lib/route-contex
 import type { AppDbExecutor, SessionSnapshot } from "../../lib/session";
 import { parseOrThrow } from "../../lib/validation";
 import type { FastifyPluginAsync } from "fastify";
+
+import { listVisibleBranches } from "./branches";
 
 const normalizeEmpty = (value?: string | null) => {
   const trimmed = value?.trim();
@@ -1266,6 +1270,102 @@ const assertCanReadEmployee = (
   });
 };
 
+const hasAnyRole = (snapshot: SessionSnapshot, allowedRoles: string[]) =>
+  snapshot.effectiveRoles.some((role) => allowedRoles.includes(role));
+
+const assertHasAnyRole = (
+  snapshot: SessionSnapshot,
+  allowedRoles: string[],
+  message: string,
+) => {
+  if (!hasAnyRole(snapshot, allowedRoles)) {
+    throw new HTTPException(403, { message });
+  }
+};
+
+const listDepartments = async (
+  db: AppDbExecutor,
+  organizationId: string,
+) => {
+  const records = await db
+    .select({ id: departments.id })
+    .from(departments)
+    .where(eq(departments.organizationId, organizationId));
+
+  const serialized = await serializeDepartmentsBatch(
+    db,
+    organizationId,
+    records.map((record) => record.id),
+  );
+
+  return serialized.sort((left, right) => left.name.localeCompare(right.name, "pt-BR"));
+};
+
+const listEmployees = async (
+  db: AppDbExecutor,
+  snapshot: SessionSnapshot,
+) => {
+  const organizationId = snapshot.organization?.id;
+
+  if (!organizationId) {
+    throw new HTTPException(401, { message: "Autenticação obrigatória." });
+  }
+
+  const scope = resolveEmployeeReadScope(snapshot);
+  if (scope.branchIds !== null && scope.branchIds.length === 0) {
+    return [];
+  }
+
+  const records = await db
+    .select({ id: employees.id })
+    .from(employees)
+    .where(
+      and(
+        eq(employees.organizationId, organizationId),
+        scope.branchIds === null ? undefined : inArray(employees.branchId, scope.branchIds),
+      ),
+    );
+
+  const serialized = await serializeEmployeesBatch(
+    db,
+    organizationId,
+    records.map((record) => record.id),
+  );
+
+  return serialized.sort((left, right) => left.fullName.localeCompare(right.fullName, "pt-BR"));
+};
+
+const listPositions = async (
+  db: AppDbExecutor,
+  organizationId: string,
+) => {
+  const records = await db
+    .select({ id: positions.id })
+    .from(positions)
+    .where(eq(positions.organizationId, organizationId));
+
+  const serialized = await serializePositionsBatch(
+    db,
+    organizationId,
+    records.map((record) => record.id),
+  );
+
+  return serialized.sort((left, right) => left.title.localeCompare(right.title, "pt-BR"));
+};
+
+const parseWorkspaceIncludes = (
+  value: unknown,
+  allowedValues: string[],
+) =>
+  new Set(
+    typeof value === "string"
+      ? value
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter((entry) => allowedValues.includes(entry))
+      : [],
+  );
+
 const serializeOrganization = async (
   db: AppDbExecutor,
   organizationId: string,
@@ -1516,6 +1616,109 @@ const organizationPlugin: FastifyPluginAsync = async (fastify) => {
       .limit(12);
 
     return c.json(records.map(toNotificationSummary));
+  });
+
+  fastify.get("/workspace/organization", async (request, reply) => {
+    const c = createRouteContext(request, reply);
+    const snapshot = c.get("sessionSnapshot");
+
+    if (!snapshot?.organization) {
+      throw new HTTPException(401, { message: "Autenticação obrigatória." });
+    }
+
+    const includes = parseWorkspaceIncludes(
+      (request.query as { include?: string } | undefined)?.include,
+      ["branches", "members", "departments", "employees"],
+    );
+    const db = c.get("db");
+    const organizationId = snapshot.organization.id;
+
+    const [branchesResult, membersResult, departmentsResult, employeesResult] =
+      await Promise.all([
+        includes.has("branches") ? listVisibleBranches(db, snapshot) : Promise.resolve([]),
+        includes.has("members")
+          ? (async () => {
+              assertHasAnyRole(
+                snapshot,
+                ["owner", "admin"],
+                "Você não tem acesso aos membros desta organização.",
+              );
+              return listOrganizationMembers(db, organizationId);
+            })()
+          : Promise.resolve([]),
+        includes.has("departments")
+          ? (async () => {
+              assertHasAnyRole(
+                snapshot,
+                ["owner", "admin", "hr_admin"],
+                "Você não tem acesso a estes departamentos.",
+              );
+              return listDepartments(db, organizationId);
+            })()
+          : Promise.resolve([]),
+        includes.has("employees")
+          ? (async () => {
+              assertHasAnyRole(
+                snapshot,
+                ["owner", "admin", "hr_admin"],
+                "Você não tem acesso a estes colaboradores.",
+              );
+              return listEmployees(db, snapshot);
+            })()
+          : Promise.resolve([]),
+      ]);
+
+    return c.json(
+      organizationWorkspaceResponseSchema.parse({
+        branches: branchesResult,
+        members: membersResult,
+        departments: departmentsResult,
+        employees: employeesResult,
+      }),
+    );
+  });
+
+  fastify.get("/workspace/collaborators", async (request, reply) => {
+    const c = createRouteContext(request, reply);
+    const snapshot = c.get("sessionSnapshot");
+
+    if (!snapshot?.organization) {
+      throw new HTTPException(401, { message: "Autenticação obrigatória." });
+    }
+
+    const includes = parseWorkspaceIncludes(
+      (request.query as { include?: string } | undefined)?.include,
+      ["departments"],
+    );
+    const db = c.get("db");
+    const organizationId = snapshot.organization.id;
+    const canManagePeople = hasAnyRole(snapshot, ["owner", "admin", "hr_admin"]);
+
+    const [branchesResult, employeesResult, positionsResult, departmentsResult] =
+      await Promise.all([
+        listVisibleBranches(db, snapshot),
+        listEmployees(db, snapshot),
+        (() => {
+          assertHasAnyRole(
+            snapshot,
+            ["owner", "admin", "hr_admin"],
+            "Você não tem acesso a estes cargos.",
+          );
+          return listPositions(db, organizationId);
+        })(),
+        includes.has("departments") && canManagePeople
+          ? listDepartments(db, organizationId)
+          : Promise.resolve([]),
+      ]);
+
+    return c.json(
+      collaboratorsWorkspaceResponseSchema.parse({
+        branches: branchesResult,
+        departments: departmentsResult,
+        employees: employeesResult,
+        positions: positionsResult,
+      }),
+    );
   });
 
   fastify.get(

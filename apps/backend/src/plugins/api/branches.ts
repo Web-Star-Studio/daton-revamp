@@ -19,7 +19,7 @@ import { requireRoles } from "../../lib/auth";
 import { recordAuditEvent } from "../../lib/audit";
 import { HTTPException } from "../../lib/errors";
 import { createRouteContext, type AppRouteContext } from "../../lib/route-context";
-import type { AppDbExecutor } from "../../lib/session";
+import type { AppDbExecutor, SessionSnapshot } from "../../lib/session";
 import { parseOrThrow } from "../../lib/validation";
 import type { FastifyPluginAsync } from "fastify";
 
@@ -323,6 +323,53 @@ const serializeBranch = async (
   };
 };
 
+export const listVisibleBranches = async (
+  db: AppDbExecutor,
+  snapshot: SessionSnapshot,
+) => {
+  if (!snapshot.organization) {
+    throw new HTTPException(401, { message: "Autenticação obrigatória." });
+  }
+
+  const hasGlobalBranchListAccess = snapshot.effectiveRoles.some((role) =>
+    branchListGlobalRoles.has(role),
+  );
+  const visibleBranchIds = snapshot.branchScope.length
+    ? snapshot.branchScope
+    : hasGlobalBranchListAccess
+      ? (
+          await db
+            .select({ id: branches.id })
+            .from(branches)
+            .where(eq(branches.organizationId, snapshot.organization.id))
+        ).map((branch) => branch.id)
+      : [];
+
+  if (visibleBranchIds.length === 0) {
+    return [];
+  }
+
+  const records = await db
+    .select()
+    .from(branches)
+    .where(
+      and(
+        eq(branches.organizationId, snapshot.organization.id),
+        inArray(branches.id, visibleBranchIds),
+      ),
+    );
+
+  const managersByBranchId = await getActiveManagersByBranchIds(
+    db,
+    records.map((branch) => branch.id),
+  );
+
+  return records.map((branch) => ({
+    ...branch,
+    managerMemberId: managersByBranchId.get(branch.id) ?? null,
+  }));
+};
+
 const branchesPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.get("/branches", async (request, reply) => {
     const c = createRouteContext(request, reply);
@@ -332,47 +379,8 @@ const branchesPlugin: FastifyPluginAsync = async (fastify) => {
       throw new HTTPException(401, { message: "Autenticação obrigatória." });
     }
 
-    const organization = snapshot.organization;
-
     const db = c.get("db");
-    const hasGlobalBranchListAccess = snapshot.effectiveRoles.some((role) =>
-      branchListGlobalRoles.has(role),
-    );
-    const visibleBranchIds = snapshot.branchScope.length
-      ? snapshot.branchScope
-      : hasGlobalBranchListAccess
-        ? (
-            await db
-              .select({ id: branches.id })
-              .from(branches)
-              .where(eq(branches.organizationId, organization.id))
-          ).map((branch) => branch.id)
-        : [];
-
-    if (visibleBranchIds.length === 0) {
-      return c.json([]);
-    }
-
-    const records = await db
-      .select()
-      .from(branches)
-      .where(
-        and(
-          eq(branches.organizationId, organization.id),
-          inArray(branches.id, visibleBranchIds),
-        ),
-      );
-
-    const managersByBranchId = await getActiveManagersByBranchIds(
-      db,
-      records.map((branch) => branch.id),
-    );
-    const managers = records.map((branch) => ({
-      ...branch,
-      managerMemberId: managersByBranchId.get(branch.id) ?? null,
-    }));
-
-    return c.json(managers);
+    return c.json(await listVisibleBranches(db, snapshot));
   });
   fastify.post(
     "/branches",

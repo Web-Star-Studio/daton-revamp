@@ -577,6 +577,20 @@ export const sessionResponseSchema = z.object({
   branchScope: z.array(z.uuid()),
 });
 
+export const organizationWorkspaceResponseSchema = z.object({
+  branches: z.array(branchSummarySchema),
+  members: organizationDirectoryMemberListSchema,
+  departments: departmentListSchema,
+  employees: employeeListSchema,
+});
+
+export const collaboratorsWorkspaceResponseSchema = z.object({
+  branches: z.array(branchSummarySchema),
+  departments: departmentListSchema,
+  employees: employeeListSchema,
+  positions: positionListSchema,
+});
+
 export type BootstrapOrganizationInput = z.infer<typeof bootstrapOrganizationSchema>;
 export type CreateBranchInput = z.infer<typeof createBranchSchema>;
 export type UpdateBranchInput = z.infer<typeof updateBranchSchema>;
@@ -592,6 +606,12 @@ export type BranchSummary = z.infer<typeof branchSummarySchema>;
 export type DepartmentSummary = z.infer<typeof departmentSummarySchema>;
 export type EmployeeSummary = z.infer<typeof employeeSummarySchema>;
 export type PositionSummary = z.infer<typeof positionSummarySchema>;
+export type OrganizationWorkspaceResponse = z.infer<
+  typeof organizationWorkspaceResponseSchema
+>;
+export type CollaboratorsWorkspaceResponse = z.infer<
+  typeof collaboratorsWorkspaceResponseSchema
+>;
 export type OnboardingCompanyProfile = z.infer<typeof onboardingCompanyProfileSchema>;
 export type OnboardingData = z.infer<typeof onboardingDataSchema>;
 export type OrganizationMemberSummary = z.infer<

@@ -1,11 +1,6 @@
 import { AuthRedirect } from "@/components/auth-redirect";
 import { CollaboratorsWorkspace } from "@/components/collaborators-workspace";
-import {
-  getServerBranches,
-  getServerDepartments,
-  getServerEmployees,
-  getServerPositions,
-} from "@/lib/server-api";
+import { getServerCollaboratorsWorkspace } from "@/lib/server-api";
 import { requireSession } from "@/lib/session";
 
 export default async function SocialCollaboratorsPage() {
@@ -22,20 +17,17 @@ export default async function SocialCollaboratorsPage() {
   const canManagePeople = session.effectiveRoles.some(
     (role) => role === "owner" || role === "admin" || role === "hr_admin",
   );
-  const [branches, employees, positions, departments] = await Promise.all([
-    getServerBranches(),
-    getServerEmployees(),
-    getServerPositions(),
-    canManagePeople ? getServerDepartments() : Promise.resolve([]),
-  ]);
+  const workspace = await getServerCollaboratorsWorkspace(
+    canManagePeople ? ["departments"] : [],
+  );
 
   return (
     <CollaboratorsWorkspace
-      branches={branches}
+      branches={workspace.branches}
       canManagePeople={canManagePeople}
-      departments={departments}
-      employees={employees}
-      positions={positions}
+      departments={workspace.departments}
+      employees={workspace.employees}
+      positions={workspace.positions}
     />
   );
 }

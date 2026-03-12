@@ -3,6 +3,7 @@ packages:
   - packages/*
 
 onlyBuiltDependencies:
+  - '@clerk/shared'
   - '@prisma/engines'
   - '@sentry/cli'
   - esbuild

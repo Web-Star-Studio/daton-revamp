@@ -9,10 +9,7 @@ import { OrganizationProfileModal } from "@/components/organization-profile-moda
 import { OrganizationDepartmentsWorkspace } from "@/components/organization-departments-workspace";
 import { OrganizationUnitsWorkspace } from "@/components/organization-units-workspace";
 import {
-  getServerBranches,
-  getServerDepartments,
-  getServerEmployees,
-  getServerOrganizationMembers,
+  getServerOrganizationWorkspace,
   type ServerBranch,
   type ServerDepartment,
   type ServerEmployee,
@@ -299,17 +296,15 @@ export default async function OrganizationSettingsPage({
   }
 
   const activeTab = getActiveOrganizationTab(resolvedSearchParams.tab);
-  const [branches, members, departments, employees] = (await Promise.all([
-    getServerBranches(),
-    activeTab === "units" ? getServerOrganizationMembers() : Promise.resolve([]),
-    activeTab === "departments" ? getServerDepartments() : Promise.resolve([]),
-    activeTab === "departments" ? getServerEmployees() : Promise.resolve([]),
-  ])) as [
-    ServerBranch[],
-    ServerOrganizationMember[],
-    ServerDepartment[],
-    ServerEmployee[],
-  ];
+  const workspace = await getServerOrganizationWorkspace([
+    "branches",
+    ...(activeTab === "units" ? ["members"] : []),
+    ...(activeTab === "departments" ? ["departments", "employees"] : []),
+  ]);
+  const branches = workspace.branches as ServerBranch[];
+  const members = workspace.members as ServerOrganizationMember[];
+  const departments = workspace.departments as ServerDepartment[];
+  const employees = workspace.employees as ServerEmployee[];
 
   const isEditOrganization = resolvedSearchParams.edit === "organization";
   const unitSearchValue = resolvedSearchParams.q?.trim() ?? "";

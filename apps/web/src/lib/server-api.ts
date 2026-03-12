@@ -1,4 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
+import { cache } from "react";
 import { z } from "zod";
 
 import {
@@ -85,8 +86,11 @@ export async function serverApiFetch<T>(
   return parseResponse(response, schema);
 }
 
-export const getServerSession = async () =>
-  serverApiFetch("/api/v1/session", sessionResponseSchema, { allowUnauthorized: true });
+export const getServerSession = cache(async () =>
+  serverApiFetch("/api/v1/session", sessionResponseSchema, {
+    allowUnauthorized: true,
+  }),
+);
 
 export const getServerBranches = async () =>
   serverApiFetch("/api/v1/branches", branchListSchema, { allowUnauthorized: false });
@@ -124,10 +128,11 @@ export const getServerDepartments = async () =>
     allowUnauthorized: false,
   });
 
-export const getServerNotifications = async () =>
+export const getServerNotifications = cache(async () =>
   serverApiFetch("/api/v1/notifications", notificationListSchema, {
     allowUnauthorized: false,
-  });
+  }),
+);
 
 export type ServerSession = SessionResponse;
 export type ServerBranch = BranchSummary;

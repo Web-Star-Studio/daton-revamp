@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 
+import { getNotifications } from "@/lib/api";
 import type { ServerNotification, ServerSession } from "@/lib/server-api";
 import { formatShortName } from "@/lib/utils";
 
@@ -27,7 +28,6 @@ import { SignOutButton } from "./sign-out-button";
 
 type AppShellProps = PropsWithChildren<{
   modal?: ReactNode;
-  notifications: ServerNotification[];
   session: ServerSession;
 }>;
 
@@ -49,14 +49,15 @@ const navigation = [
 export function AppShell({
   children,
   modal,
-  notifications,
   session,
 }: AppShellProps) {
   const activeModalSegment = useSelectedLayoutSegment("modal");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isAlertsOpen, setIsAlertsOpen] = useState(false);
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
-  const [currentNotifications, setCurrentNotifications] = useState(notifications);
+  const [currentNotifications, setCurrentNotifications] = useState<
+    ServerNotification[]
+  >([]);
   const [isBranchEditorOpen, setIsBranchEditorOpen] = useState(false);
   const [isCollaboratorModalOpen, setIsCollaboratorModalOpen] = useState(false);
   const [isDepartmentModalOpen, setIsDepartmentModalOpen] = useState(false);
@@ -117,8 +118,26 @@ export function AppShell({
   }, [isAnyModalOpen]);
 
   useEffect(() => {
-    setCurrentNotifications(notifications);
-  }, [notifications]);
+    let cancelled = false;
+
+    const loadNotifications = async () => {
+      try {
+        const nextNotifications = await getNotifications();
+
+        if (!cancelled) {
+          setCurrentNotifications(nextNotifications);
+        }
+      } catch (error) {
+        Sentry.captureException(error);
+      }
+    };
+
+    void loadNotifications();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session.organization?.id, session.user.id]);
 
   useEffect(() => {
     const handleBranchEditorVisibility = (event: Event) => {
@@ -200,7 +219,7 @@ export function AppShell({
               <Link
                 aria-label="Ir para o workspace"
                 className="app-sidebar__brand"
-                href="/app"
+                href="/app/settings/organization"
               >
                 <Image
                   alt="Daton"

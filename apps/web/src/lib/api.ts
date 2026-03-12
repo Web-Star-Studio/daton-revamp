@@ -7,6 +7,7 @@ import {
   createCreateDepartmentSchema,
   createCreateEmployeeSchema,
   createCreatePositionSchema,
+  notificationListSchema,
   sessionResponseSchema,
   createUpdateBranchSchema,
   createUpdateDepartmentSchema,
@@ -101,6 +102,13 @@ export async function getBrowserSession() {
   return clientApiFetch<SessionResponse>("/api/v1/session", {
     method: "GET",
     schema: sessionResponseSchema,
+  });
+}
+
+export async function getNotifications() {
+  return clientApiFetch("/api/v1/notifications", {
+    method: "GET",
+    schema: notificationListSchema,
   });
 }
 

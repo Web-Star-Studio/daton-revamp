@@ -2,6 +2,7 @@ services:
   - type: web
     name: daton-backend
     runtime: docker
+    region: virginia
     plan: starter
     dockerfilePath: ./apps/backend/Dockerfile
     dockerContext: .
@@ -51,6 +52,7 @@ services:
   - type: web
     name: daton-web
     runtime: docker
+    region: virginia
     plan: starter
     dockerfilePath: ./apps/web/Dockerfile
     dockerContext: .
